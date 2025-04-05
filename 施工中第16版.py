@@ -5,7 +5,6 @@ import re
 import random # 用於隨機延遲
 from datetime import datetime
 import requests # 用於解析 URL 參數
-# from bs4 import BeautifulSoup # 在這個版本中未使用，可以移除
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
