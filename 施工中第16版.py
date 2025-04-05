@@ -307,7 +307,7 @@ class PatreonScraperRefactored:
         # --- 步驟 2: 等待 '關於' 內容容器出現 ---
         print(f"等待 '關於' 內容容器加載: {content_container_selector}")
         # 增加等待時間，因為內容可能是動態加載的
-        content_container = self._find_element(content_container_selector, timeout=15)
+        content_container = self._find_element(content_container_selector, timeout = 10)
 
         if content_container is None:
             print("未能找到 '關於' 內容容器，無法計算字數。")
@@ -661,7 +661,7 @@ class PatreonScraperRefactored:
         total_comments = 0
 
         # 先確保內容已盡可能加載
-        self.scroll_page_to_load_more(max_scrolls=15) # 增加滾動次數
+        self.scroll_page_to_load_more(max_scrolls = 10) # 增加滾動次數
 
         print("查找所有點讚和留言元素...")
         # TODO: 確認點讚和留言元素的選擇器
