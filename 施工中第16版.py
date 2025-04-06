@@ -90,6 +90,8 @@ class PatreonScraperRefactored:
         # "關於"頁面
         "about_link": (By.XPATH, "//li/a[substring(@href, string-length(@href) - string-length('/about?') + 1) = '/about?' and (normalize-space(.)='About' or normalize-space(.)='關於')]"),
         "about_content_container": (By.XPATH, "//div[@data-tag='about-contents']"),
+
+        "monthly_income_element": (By.XPATH, "//span[@data-tag='earnings-count']"),
     }
 
 
@@ -215,7 +217,7 @@ class PatreonScraperRefactored:
             'creator_name': '',
             'patron_count': 0,
             'total_posts': 0,
-            # 'monthly_income': 0 # 收入信息通常不可靠或不可見
+            'monthly_income': 0 # 收入信息通常不可靠或不可見
         }
 
         # 獲取創作者名稱
@@ -254,6 +256,19 @@ class PatreonScraperRefactored:
 
         except Exception as e:
             print(f"  獲取 Patron Count 時出錯: {e}")
+
+        print("  嘗試獲取月收入...")
+        income_element = self._find_element(self.SELECTORS["monthly_income_element"], timeout=2)
+        if income_element:
+            income_text = income_element.text.strip()
+            income_value = parse_number(income_text) # 使用輔助函數解析
+            if income_value is not None:
+                static_data['income_per_month'] = income_value
+                print(f"  找到 Monthly Income: {static_data['income_per_month']} (來自文本: {income_text})")
+            else:
+                print(f"  找到月收入元素，但無法從文本 '{income_text}' 解析數字。")
+        else:
+            print("  未找到公開的月收入信息。")
 
 
         # 獲取 Posts 數量 (邏輯類似 Patron Count)
@@ -816,7 +831,8 @@ class PatreonScraperRefactored:
                 'creator_name': static_data.get('creator_name', ''),
                 'total_post': static_data.get('total_posts', 0),
                 'patreon_number': static_data.get('patron_count', 0),
-                # 'income_per_month': static_data.get('monthly_income', 0), # 通常難以獲取
+                
+                'income_per_month': static_data.get('monthly_income', 0), # 通常難以獲取
 
                 # 字典數據源 (用於後續處理)
                 'tier_post_dict': post_tiers_data,
@@ -861,7 +877,7 @@ class PatreonScraperRefactored:
         row_data = {}
 
         # 填充基本欄位
-        for field in ['URL', 'creator_name', 'total_post', 'patreon_number', #'income_per_month',
+        for field in ['URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
                       'tier_count', 'total_likes', 'total_comments', 'total_links', 'social_link_count','about_word_count']:
             if field in fieldnames:
                 row_data[field] = data.get(field, 0 if field not in ['URL', 'creator_name'] else '')
@@ -912,7 +928,7 @@ class PatreonScraperRefactored:
         # 順序可以根據你的偏好調整
         fieldnames = [
             # 基本信息
-            'URL', 'creator_name', 'total_post', 'patreon_number', #'income_per_month',
+            'URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
             # 聚合信息 (字典字串 + 計數)
             'tier_post_data', 'post_year_count', 'tier_count',
             'total_likes', 'total_comments', 'total_links',
