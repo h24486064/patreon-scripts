@@ -98,6 +98,8 @@ class PatreonScraperRefactored:
         "lock_icon_indicator": (By.XPATH, ".//button[@data-tag='locked-badge-button'] | .//svg[@data-tag='IconLock']"),
         #確定是否有聊天室
         "chat_nav_link": (By.XPATH, "//li/a[contains(@href, '/chats') and normalize-space(.)='Chats']"),
+        "chat_list_item": (By.XPATH, "//button[starts-with(@data-tag, 'chat-list-item-')]"),
+        "chat_lock_icon": (By.XPATH, ".//svg[@data-tag='IconLock']"),
     }
 
 
@@ -382,6 +384,96 @@ class PatreonScraperRefactored:
         else:
             print("  未找到 'Chats' 導航連結。")
             return False
+        
+    def get_chat_room_details(self) -> Dict[str, int]:
+        """
+        點擊 'Chats' 標籤頁 (如果存在)，查找所有聊天室項目，
+        並統計免費和付費（鎖定）聊天室的數量。
+
+        Returns:
+            Dict[str, int]: 包含 'free_chat_count' 和 'paid_chat_count' 的字典。
+        """
+        print("嘗試獲取聊天室詳細信息 (免費/付費數量)...")
+        free_chat_count = 0
+        paid_chat_count = 0
+        default_return = {'free_chat_count': 0, 'paid_chat_count': 0}
+
+        chat_nav_selector = self.SELECTORS["chat_nav_link"]
+        chat_item_selector = self.SELECTORS["chat_list_item"]
+        lock_icon_selector = self.SELECTORS["chat_lock_icon"]
+
+        # --- 步驟 1: 檢查並點擊 'Chats' 導航連結 ---
+        chat_link = self._find_element(chat_nav_selector, timeout=3)
+        if not chat_link:
+            print("  未找到 'Chats' 導航連結，無法獲取聊天室詳情。")
+            return default_return
+
+        print("  找到 'Chats' 連結，嘗試點擊...")
+        if not self._click_element(chat_nav_selector, timeout=5):
+            print("  點擊 'Chats' 導航連結失敗。")
+            return default_return
+        print("  成功點擊 'Chats' 連結。")
+
+        # --- 步驟 2: 等待聊天室列表項加載 ---
+        print(f"  等待聊天室列表項加載 (使用選擇器: {chat_item_selector})...")
+        try:
+            # 等待至少一個聊天室項目出現 (增加等待時間)
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located(chat_item_selector)
+            )
+            print("  聊天室列表項已初步加載。")
+            # 可以選擇再短暫 sleep 一下確保渲染完成，但最好避免
+            # time.sleep(1)
+        except TimeoutException:
+            print("  等待聊天室列表項加載超時，可能沒有聊天室或加載失敗。")
+            # **重要**: 點擊 Chats 後可能需要導航回主頁面，否則後續爬蟲會出錯
+            # self.driver.back() # 考慮是否需要返回
+            return default_return
+
+        # --- 步驟 3: 查找所有聊天室項目並遍歷 ---
+        chat_items = self._find_elements(chat_item_selector)
+        print(f"  找到 {len(chat_items)} 個聊天室列表項。")
+
+        if not chat_items:
+            # self.driver.back() # 同上，考慮返回
+            return default_return
+
+        for i, item in enumerate(chat_items):
+            is_locked = False
+            print(f"    處理第 {i+1} 個聊天室...")
+            try:
+                # 檢查內部是否有鎖定圖示
+                lock_icon = self._find_element(lock_icon_selector, parent=item, timeout=0.1) # 快速檢查
+                if lock_icon:
+                    is_locked = True
+                    print("      檢測到鎖定圖示 (付費/鎖定)。")
+                # else:
+                #     print("      未檢測到鎖定圖示 (免費)。")
+
+                # 累加計數器
+                if is_locked:
+                    paid_chat_count += 1
+                else:
+                    free_chat_count += 1
+
+            except StaleElementReferenceException:
+                 print(f"    處理第 {i+1} 個聊天室時元素過時，跳過。")
+                 continue
+            except Exception as e:
+                 print(f"    處理第 {i+1} 個聊天室時發生錯誤: {e}")
+                 continue
+
+        print(f"  聊天室統計完成: 免費={free_chat_count}, 付費={paid_chat_count}")
+
+        # **重要**: 點擊 Chats 標籤後，頁面 URL 或狀態可能已改變。
+        # 如果後續的 self.get_social_values() 等操作需要在原始頁面（例如 Posts 頁）進行，
+        # 你可能需要 在這裡添加程式碼導航回去，例如：
+        # print("  嘗試導航回主頁面...")
+        # self.driver.back()
+        # time.sleep(1) # 等待返回生效
+
+        return {'free_chat_count': free_chat_count, 'paid_chat_count': paid_chat_count}
+
 
     def _parse_year_item(self, item_element: webdriver.remote.webelement.WebElement) -> Optional[Tuple[str, int]]:
         """解析年份下拉選單項目"""
@@ -861,12 +953,19 @@ class PatreonScraperRefactored:
 
             # --- 依次獲取各部分數據 ---
             static_data = self.get_static_content()
+            print(f"\nDEBUG: static_data received in scrape_url:")
+            import pprint
+            pprint.pprint(static_data)
             social_links_data = self.get_social_links()
             post_types_data = self.get_post_types()
             post_years_data = self.get_post_years()
             post_tiers_data = self.get_post_tiers() # Tier 數據
             social_values_data = self.get_social_values() # 點讚和留言
             has_chat_tab = self.check_chat_tab_exists() #檢查是不是有聊天室
+            chat_details = self.get_chat_room_details()
+            free_chat_count = chat_details.get('free_chat_count', 0)
+            paid_chat_count = chat_details.get('paid_chat_count', 0)
+            has_chat_tab = 'yes' if (free_chat_count > 0 or paid_chat_count > 0) else 'no'
 
             about_word_count = self.get_about_section_word_count()
 
@@ -906,7 +1005,7 @@ class PatreonScraperRefactored:
                 'total_post': static_data.get('total_posts', 0),
                 'patreon_number': static_data.get('patron_count', 0),
                 
-                'income_per_month': static_data.get('monthly_income', 0), # 通常難以獲取
+                'income_per_month': static_data.get('income_per_month', 0), # 通常難以獲取
 
                 # 字典數據源 (用於後續處理)
                 'tier_post_dict': post_tiers_data,
@@ -930,6 +1029,9 @@ class PatreonScraperRefactored:
                 'locked_comments': social_values_data.get('locked_comments', 0),
                 #紀錄是否有聊天室
                 'has_chat_tab': 'yes' if has_chat_tab else 'no', # 記錄 'yes' 或 'no'
+                'free_chat_count': free_chat_count,
+                'paid_chat_count': paid_chat_count,
+
             
             }
 
@@ -937,6 +1039,7 @@ class PatreonScraperRefactored:
             result['total_comments_combined'] = result['public_comments'] + result['locked_comments']
 
             print(f"--- URL: {url} 爬取完成 ---")
+            print(f"DEBUG: Final result dict before return: {result}")
             return result
 
         except Exception as e:
@@ -944,11 +1047,11 @@ class PatreonScraperRefactored:
             import traceback
             traceback.print_exc() # 打印詳細錯誤信息
             return {
-                'URL': url, 'creator_name': '','total_post': 0,'patreon_number': 0,
+                'URL': url, 'creator_name': '','total_post': 0,'patreon_number': 0, 'income_per_month' : 0, 
                 'tier_post_dict': {}, 'post_year_dict': {}, 'post_type_dict': {}, 'social_links_dict': {'social_link_count': 0},
                 'tier_count': 0, 'total_links': 0,'social_link_count': 0,
                 'about_word_count': 0, 
-                'has_chat_tab': 'no',
+                'has_chat_tab': 'no', 'free_chat_count': 0, 'paid_chat_count': 0,
                 'public_likes': 0, 'public_comments': 0, 'locked_likes': 0, 'locked_comments': 0,
                 'total_likes_combined': 0, 'total_comments_combined': 0 
             }
@@ -967,10 +1070,10 @@ class PatreonScraperRefactored:
         row_data = {}
 
         # 填充基本欄位
-        for field in ['URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
+        for field in ['URL', 'creator_name', 'total_post', 'patreon_number', 'monthly_income_element',
                       'tier_count', 'total_links', 'social_link_count','about_word_count',
                       'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
-                      'total_likes_combined', 'total_comments_combined','has_chat_tab',
+                      'total_likes_combined', 'total_comments_combined','has_chat_tab', 'free_chat_count', 'paid_chat_count'
                       ]:
             if field in fieldnames:
                 default_val = '' if field in ['URL', 'creator_name'] else ('no' if field == 'has_chat_tab' else 0)
@@ -1023,7 +1126,7 @@ class PatreonScraperRefactored:
         # 順序可以根據你的偏好調整
         fieldnames = [
             # 基本信息
-            'URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
+            'URL', 'creator_name', 'total_post', 'patreon_number', 'monthly_income_element',
             # 聚合信息 (字典字串 + 計數)
             'tier_post_data', 'post_year_count', 'tier_count',
             'total_likes', 'total_comments', 'total_links',
@@ -1037,7 +1140,7 @@ class PatreonScraperRefactored:
             'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
             'total_likes_combined', 'total_comments_combined',
 
-            'has_chat_tab', # 是否有聊天室
+            'free_chat_count', 'paid_chat_count',# 是否有聊天室
 
             'about_word_count' # 其他和未知類型
         ]
