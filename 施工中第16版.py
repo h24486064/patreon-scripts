@@ -92,6 +92,10 @@ class PatreonScraperRefactored:
         "about_content_container": (By.XPATH, "//div[@data-tag='about-contents']"),
 
         "monthly_income_element": (By.XPATH, "//span[@data-tag='earnings-count']"),
+        #單個貼文容器
+        "post_card_container": (By.XPATH, "//div[@data-tag='post-card']"),
+        #用data-tag 找是否有鎖定的圖示
+        "lock_icon_indicator": (By.XPATH, ".//button[@data-tag='locked-badge-button'] | .//svg[@data-tag='IconLock']")
     }
 
 
@@ -670,43 +674,90 @@ class PatreonScraperRefactored:
 
 
     def get_social_values(self) -> Dict[str, int]:
-        """獲取頁面上所有帖子的總按讚數和總留言數"""
-        print("正在獲取社交互動數據 (點讚/留言)...")
-        total_likes = 0
-        total_comments = 0
+        """
+        遍歷頁面上的貼文，區分公開和私密貼文，分別統計按讚數和留言數。
+        """
+        print("正在區分公開/私密貼文並統計社交互動數據...")
+        public_likes = 0
+        public_comments = 0
+        locked_likes = 0
+        locked_comments = 0
 
         # 先確保內容已盡可能加載
         self.scroll_page_to_load_more(max_scrolls = 10) # 增加滾動次數
 
         print("查找所有點讚和留言元素...")
         # TODO: 確認點讚和留言元素的選擇器
-        like_elements = self._find_elements(self.SELECTORS["like_count_element"])
-        comment_elements = self._find_elements(self.SELECTORS["comment_count_element"])
+        post_cards = self._find_elements(self.SELECTORS["post_card_container"])
+        print(f"找到 {len(post_cards)} 個貼文卡片容器。")
 
-        print(f"找到 {len(like_elements)} 個點讚相關元素。")
-        print(f"找到 {len(comment_elements)} 個留言相關元素。")
 
-        for element in like_elements:
+        for i, card in enumerate(post_cards):
+            is_locked = False
+            post_likes = 0
+            post_comments = 0
+            print(f"  處理第 {i+1} 個貼文卡片...")
+
             try:
-                # 確保元素仍然可用
-                text = element.text.strip()
-                count = extract_integer(text) # 使用外部輔助函數
-                if count is not None:
-                    total_likes += count
-            except StaleElementReferenceException: continue
-            except Exception: pass # 忽略單個元素的解析錯誤
+                # 3.1 檢查是否為私密貼文 (在卡片內部查找鎖定標誌)
+                # 使用 timeout=0.1 快速檢查是否存在，避免等待
+                lock_indicator = self._find_element(self.SELECTORS["lock_icon_indicator"], parent=card, timeout=0.1)
+                if lock_indicator:
+                    is_locked = True
+                    print("貼文已鎖定。")
+                # else:
+                #     print("貼文是公開的。")
 
-        for element in comment_elements:
-            try:
-                text = element.text.strip()
-                count = extract_integer(text)
-                if count is not None:
-                    total_comments += count
-            except StaleElementReferenceException: continue
-            except Exception: pass
+                # 3.2 在卡片內部查找按讚數
+                # 注意選擇器需要是相對的，或者確保全局選擇器能正確匹配到卡片內的元素
+                # 使用 '.' 開頭的相對 XPath
+                like_element_xpath = ".//span[@data-tag='like-count']"
+                like_element = self._find_element((By.XPATH, like_element_xpath), parent=card, timeout=0.1)
+                if like_element:
+                    like_text = like_element.text.strip()
+                    count = extract_integer(like_text) # 使用輔助函數
+                    if count is not None:
+                        post_likes = count
+                        print(f"找到按讚數: {post_likes}")
 
-        print(f"計算結果: Total Likes = {total_likes}, Total Comments = {total_comments}")
-        return {'total_likes': total_likes, 'total_comments': total_comments}
+                # 3.3 在卡片內部查找留言數
+                # 使用 '.' 開頭的相對 XPath
+                comment_element_xpath = ".//a[@data-tag='comment-post-icon']//p"
+                comment_element = self._find_element((By.XPATH, comment_element_xpath), parent=card, timeout=0.1)
+                if comment_element:
+                    comment_text = comment_element.text.strip()
+                    count = extract_integer(comment_text)
+                    if count is not None:
+                        post_comments = count
+                        print(f"找到留言數: {post_comments}")
+
+                # 3.4 根據是否鎖定，累加到對應計數器
+                if is_locked:
+                    locked_likes += post_likes
+                    locked_comments += post_comments
+                else:
+                    public_likes += post_likes
+                    public_comments += post_comments
+
+            except StaleElementReferenceException:
+                 print(f"處理第 {i+1} 個貼文卡片時元素過時，跳過此卡片。")
+                 continue
+            except Exception as e:
+                 print(f"處理第 {i+1} 個貼文卡片時發生錯誤: {e}")
+                 continue # 跳過這個卡片，繼續處理下一個
+
+        print("-" * 20)
+        print(f"統計結果: ")
+        print(f"  公開 - Likes: {public_likes}, Comments: {public_comments}")
+        print(f"  私密 - Likes: {locked_likes}, Comments: {locked_comments}")
+        print("-" * 20)
+
+        return {
+            'public_likes': public_likes,
+            'public_comments': public_comments,
+            'locked_likes': locked_likes,
+            'locked_comments': locked_comments
+        }
 
     def get_social_links(self) -> Dict[str, Any]:
         """獲取創作者頁面上的社群平台連結"""
@@ -848,7 +899,17 @@ class PatreonScraperRefactored:
                 'social_link_count': social_links_data.get('social_link_count', 0),
 
                 'about_word_count': about_word_count,
+
+                # *** 新增：區分後的按讚和留言數 ***
+                'public_likes': social_values_data.get('public_likes', 0),
+                'public_comments': social_values_data.get('public_comments', 0),
+                'locked_likes': social_values_data.get('locked_likes', 0),
+                'locked_comments': social_values_data.get('locked_comments', 0),
             }
+
+            result['total_likes_combined'] = result['public_likes'] + result['locked_likes']
+            result['total_comments_combined'] = result['public_comments'] + result['locked_comments']
+
             print(f"--- URL: {url} 爬取完成 ---")
             return result
 
@@ -859,8 +920,10 @@ class PatreonScraperRefactored:
             return {
                 'URL': url, 'creator_name': '','total_post': 0,'patreon_number': 0,
                 'tier_post_dict': {}, 'post_year_dict': {}, 'post_type_dict': {}, 'social_links_dict': {'social_link_count': 0},
-                'tier_count': 0, 'total_likes': 0,'total_comments': 0,'total_links': 0,'social_link_count': 0,
-                'about_word_count': 0, # <--- 錯誤時的默認值
+                'tier_count': 0, 'total_links': 0,'social_link_count': 0,
+                'about_word_count': 0, 
+                'public_likes': 0, 'public_comments': 0, 'locked_likes': 0, 'locked_comments': 0,
+                'total_likes_combined': 0, 'total_comments_combined': 0 
             }
 
     def _prepare_row_data(self, data: Dict[str, Any], fieldnames: List[str]) -> Dict[str, Any]:
@@ -878,7 +941,10 @@ class PatreonScraperRefactored:
 
         # 填充基本欄位
         for field in ['URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
-                      'tier_count', 'total_likes', 'total_comments', 'total_links', 'social_link_count','about_word_count']:
+                      'tier_count', 'total_links', 'social_link_count','about_word_count',
+                      'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
+                      'total_likes_combined', 'total_comments_combined',
+                      ]:
             if field in fieldnames:
                 row_data[field] = data.get(field, 0 if field not in ['URL', 'creator_name'] else '')
 
@@ -938,7 +1004,10 @@ class PatreonScraperRefactored:
             'text_posts', 'image_posts', 'video_posts', 'podcast_posts', 'audio_posts',
             'link_posts', 'poll_posts', 'livestream_posts',
             'other_posts', 'unknown',
-             
+
+            'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
+            'total_likes_combined', 'total_comments_combined',
+
             'about_word_count' # 其他和未知類型
         ]
         # 可以根據需要添加更多預期的文章類型欄位
