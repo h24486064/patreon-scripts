@@ -95,7 +95,9 @@ class PatreonScraperRefactored:
         #單個貼文容器
         "post_card_container": (By.XPATH, "//div[@data-tag='post-card']"),
         #用data-tag 找是否有鎖定的圖示
-        "lock_icon_indicator": (By.XPATH, ".//button[@data-tag='locked-badge-button'] | .//svg[@data-tag='IconLock']")
+        "lock_icon_indicator": (By.XPATH, ".//button[@data-tag='locked-badge-button'] | .//svg[@data-tag='IconLock']"),
+        #確定是否有聊天室
+        "chat_nav_link": (By.XPATH, "//li/a[contains(@href, '/chats') and normalize-space(.)='Chats']"),
     }
 
 
@@ -360,6 +362,26 @@ class PatreonScraperRefactored:
         # 例如，點擊回到主要 Posts 標籤頁？這取決於網站行為和後續爬取需求
 
         return about_word_count
+
+    def check_chat_tab_exists(self) -> bool:
+        """
+        檢查頁面上是否存在 'Chats' 導航連結/標籤頁。
+
+        Returns:
+            bool: 如果找到 'Chats' 連結則返回 True，否則返回 False。
+        """
+        print("檢查是否存在 'Chats' 導航連結...")
+        chat_link_selector = self.SELECTORS["chat_nav_link"]
+
+        # 使用短超時快速檢查元素是否存在，不需要等待它可點擊
+        chat_link = self._find_element(chat_link_selector, timeout=3) # 用 3 秒超時
+
+        if chat_link:
+            print("  找到 'Chats' 導航連結。")
+            return True
+        else:
+            print("  未找到 'Chats' 導航連結。")
+            return False
 
     def _parse_year_item(self, item_element: webdriver.remote.webelement.WebElement) -> Optional[Tuple[str, int]]:
         """解析年份下拉選單項目"""
@@ -684,7 +706,7 @@ class PatreonScraperRefactored:
         locked_comments = 0
 
         # 先確保內容已盡可能加載
-        self.scroll_page_to_load_more(max_scrolls = 10) # 增加滾動次數
+        self.scroll_page_to_load_more(max_scrolls = 5) # 增加滾動次數
 
         print("查找所有點讚和留言元素...")
         # TODO: 確認點讚和留言元素的選擇器
@@ -844,6 +866,7 @@ class PatreonScraperRefactored:
             post_years_data = self.get_post_years()
             post_tiers_data = self.get_post_tiers() # Tier 數據
             social_values_data = self.get_social_values() # 點讚和留言
+            has_chat_tab = self.check_chat_tab_exists() #檢查是不是有聊天室
 
             about_word_count = self.get_about_section_word_count()
 
@@ -900,11 +923,14 @@ class PatreonScraperRefactored:
 
                 'about_word_count': about_word_count,
 
-                # *** 新增：區分後的按讚和留言數 ***
+                # 區分後的按讚和留言數
                 'public_likes': social_values_data.get('public_likes', 0),
                 'public_comments': social_values_data.get('public_comments', 0),
                 'locked_likes': social_values_data.get('locked_likes', 0),
                 'locked_comments': social_values_data.get('locked_comments', 0),
+                #紀錄是否有聊天室
+                'has_chat_tab': 'yes' if has_chat_tab else 'no', # 記錄 'yes' 或 'no'
+            
             }
 
             result['total_likes_combined'] = result['public_likes'] + result['locked_likes']
@@ -922,6 +948,7 @@ class PatreonScraperRefactored:
                 'tier_post_dict': {}, 'post_year_dict': {}, 'post_type_dict': {}, 'social_links_dict': {'social_link_count': 0},
                 'tier_count': 0, 'total_links': 0,'social_link_count': 0,
                 'about_word_count': 0, 
+                'has_chat_tab': 'no',
                 'public_likes': 0, 'public_comments': 0, 'locked_likes': 0, 'locked_comments': 0,
                 'total_likes_combined': 0, 'total_comments_combined': 0 
             }
@@ -943,10 +970,12 @@ class PatreonScraperRefactored:
         for field in ['URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
                       'tier_count', 'total_links', 'social_link_count','about_word_count',
                       'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
-                      'total_likes_combined', 'total_comments_combined',
+                      'total_likes_combined', 'total_comments_combined','has_chat_tab',
                       ]:
             if field in fieldnames:
-                row_data[field] = data.get(field, 0 if field not in ['URL', 'creator_name'] else '')
+                default_val = '' if field in ['URL', 'creator_name'] else ('no' if field == 'has_chat_tab' else 0)
+                row_data[field] = data.get(field, default_val)
+
 
         # 處理字典數據 -> 字串 (按用戶要求)
         if 'tier_post_data' in fieldnames:
@@ -1007,6 +1036,8 @@ class PatreonScraperRefactored:
 
             'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
             'total_likes_combined', 'total_comments_combined',
+
+            'has_chat_tab', # 是否有聊天室
 
             'about_word_count' # 其他和未知類型
         ]
