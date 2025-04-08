@@ -2,6 +2,7 @@ import time
 import csv
 import os
 import re
+import json
 import random # 用於隨機延遲
 from datetime import datetime
 import requests # 用於解析 URL 參數
@@ -100,6 +101,14 @@ class PatreonScraperRefactored:
         "chat_nav_link": (By.XPATH, "//li/a[contains(@href, '/chats') and normalize-space(.)='Chats']"),
         "chat_list_item": (By.XPATH, "//button[starts-with(@data-tag, 'chat-list-item-')]"),
         "chat_lock_icon": (By.XPATH, ".//svg[@data-tag='IconLock']"),
+        #會籍
+        "tier_card": (By.XPATH, ".//div[@data-tag='tier-card']"),
+        "tier_name": (By.XPATH, ".//div[contains(@class, 'hrsRPq')]/div[1]"),
+        "tier_price": (By.XPATH, ".//span[contains(@class, 'bznMvN')]/div[starts-with(normalize-space(.), '$')]"),
+        "tier_description_area": (By.XPATH, ".//div[contains(@class, 'kTpbRT')]"),
+
+        
+
     }
 
 
@@ -474,6 +483,86 @@ class PatreonScraperRefactored:
 
         return {'free_chat_count': free_chat_count, 'paid_chat_count': paid_chat_count}
 
+    def get_membership_tiers(self) -> List[Dict[str, Any]]:
+        """
+        爬取創作者定義的會員方案 (Tiers) 及其資訊。
+        直接查找頁面上的所有 tier card。
+
+        Returns:
+            List[Dict[str, Any]]: ... (返回值說明不變) ...
+        """
+        print("正在獲取會員方案 (Tiers) 資訊...")
+        tiers_data = []
+        # --- 獲取選擇器 ---
+        card_selector = self.SELECTORS["tier_card"]
+        name_selector = self.SELECTORS["tier_name"]
+        price_selector = self.SELECTORS["tier_price"]
+        desc_selector = self.SELECTORS["tier_description_area"]
+
+        # --- 步驟 1: (可選) 檢查是否需要點擊 "Membership" 標籤頁 ---
+        # ... (這部分邏輯可以保留，如果需要的話) ...
+        # 如果點擊了標籤頁，需要等待 tier_card 出現
+        # try:
+        #     self.wait.until(EC.visibility_of_element_located(card_selector))
+        #     print("會員方案卡片已加載。")
+        # except TimeoutException:
+        #     print("等待會員方案卡片超時。")
+        #     return tiers_data
+
+        # --- 步驟 2: 直接查找頁面上所有的方案卡片 ---
+        print(f"查找所有方案卡片: {card_selector}")
+        # 不再需要 tier_container，直接用 self.driver 查找
+        tier_cards = self._find_elements(card_selector)
+        print(f"找到 {len(tier_cards)} 個會員方案卡片。")
+
+        if not tier_cards:
+            print("頁面上未找到任何會員方案卡片。")
+            return tiers_data
+
+        # --- 步驟 3: 遍歷每個卡片，提取資訊 ---
+        for i, card in enumerate(tier_cards):
+            print(f"  處理第 {i+1}/{len(tier_cards)} 個方案...")
+            # 使用 get() 提供默認值，更安全
+            tier_info = {'name': '', 'price': 0.0, 'description_word_count': 0}
+            try:
+                # 提取名稱 (相對於卡片查找)
+                name_element = self._find_element(name_selector, parent=card, timeout=1) # 短超時，元素應該已存在
+                if name_element:
+                    tier_info['name'] = name_element.text.strip()
+                    print(f"    名稱: {tier_info['name']}")
+                # else: print("    未能找到方案名稱。") # 減少日誌輸出
+
+                # 提取價格 (相對於卡片查找)
+                price_element = self._find_element(price_selector, parent=card, timeout=1)
+                if price_element:
+                    price_text = price_element.text.strip()
+                    price_value = parse_number(price_text) # 使用外部輔助函數
+                    tier_info['price'] = price_value if price_value is not None else 0.0
+                    print(f"    價格: {tier_info['price']} (來自文本: '{price_text}')")
+                # else: print("    未能找到方案價格。")
+
+                # 提取描述區域並計算字數 (相對於卡片查找)
+                desc_area = self._find_element(desc_selector, parent=card, timeout=1)
+                if desc_area:
+                    desc_text = desc_area.text
+                    if desc_text:
+                        words = desc_text.strip().split()
+                        tier_info['description_word_count'] = len(words)
+                        print(f"    描述字數: {tier_info['description_word_count']}")
+                    # else: print("    描述區域文本為空。")
+                # else: print("    未能找到方案描述區域。")
+
+                tiers_data.append(tier_info)
+
+            except StaleElementReferenceException:
+                 print(f"  處理第 {i+1} 個方案時元素過時，跳過此方案。")
+                 continue
+            except Exception as e:
+                 print(f"  處理第 {i+1} 個方案時發生錯誤: {e}")
+                 continue # 跳過這個方案，繼續處理下一個
+
+        print(f"會員方案資訊提取完成，共 {len(tiers_data)} 個方案。")
+        return tiers_data
 
     def _parse_year_item(self, item_element: webdriver.remote.webelement.WebElement) -> Optional[Tuple[str, int]]:
         """解析年份下拉選單項目"""
@@ -966,6 +1055,7 @@ class PatreonScraperRefactored:
             free_chat_count = chat_details.get('free_chat_count', 0)
             paid_chat_count = chat_details.get('paid_chat_count', 0)
             has_chat_tab = 'yes' if (free_chat_count > 0 or paid_chat_count > 0) else 'no'
+            membership_tiers_data = self.get_membership_tiers()
 
             about_word_count = self.get_about_section_word_count()
 
@@ -1032,6 +1122,11 @@ class PatreonScraperRefactored:
                 'free_chat_count': free_chat_count,
                 'paid_chat_count': paid_chat_count,
 
+                'membership_tiers': membership_tiers_data,
+                'tier_count': len(post_tiers_data),
+                'membership_tier_count': len(membership_tiers_data), # 計算會員等級數量
+                'about_word_count': about_word_count,
+
             
             }
 
@@ -1073,7 +1168,7 @@ class PatreonScraperRefactored:
         for field in ['URL', 'creator_name', 'total_post', 'patreon_number', 'monthly_income_element',
                       'tier_count', 'total_links', 'social_link_count','about_word_count',
                       'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
-                      'total_likes_combined', 'total_comments_combined','has_chat_tab', 'free_chat_count', 'paid_chat_count'
+                      'total_likes_combined', 'total_comments_combined','has_chat_tab', 'free_chat_count', 'paid_chat_count', 'membership_tier_count',
                       ]:
             if field in fieldnames:
                 default_val = '' if field in ['URL', 'creator_name'] else ('no' if field == 'has_chat_tab' else 0)
@@ -1087,6 +1182,11 @@ class PatreonScraperRefactored:
         if 'post_year_count' in fieldnames: # CSV 欄位名仍用 post_year_count
             year_dict = data.get('post_year_dict', {})
             row_data['post_year_count'] = str(year_dict) if year_dict else '{}'
+
+        if 'membership_tiers_json' in fieldnames:
+            tiers_list = data.get('membership_tiers', []) # 從 data 獲取列表
+            # ensure_ascii=False 確保中文等字符能正確顯示
+            row_data['membership_tiers_json'] = json.dumps(tiers_list, ensure_ascii=False) if tiers_list else '[]'
 
         # 展開社群平台連結狀態
         social_links_dict = data.get('social_links_dict', {})
@@ -1106,8 +1206,9 @@ class PatreonScraperRefactored:
                  # 判斷是否為字典字串欄位
                 is_dict_string = field in ['tier_post_data', 'post_year_count']
                 is_social_yes_no = field in ['facebook', 'twitter', 'instagram', 'youtube', 'twitch', 'tiktok', 'discord']
-
-                if is_dict_string: row_data[field] = '{}'
+                is_json_string = field == 'membership_tiers_json'
+                if is_json_string: row_data[field] = '[]'
+                elif is_dict_string: row_data[field] = '{}'
                 elif is_social_yes_no: row_data[field] = 'no'
                 elif field in ['URL', 'creator_name']: pass # 通常已處理
                 else: row_data[field] = 0 # 其他 (如文章類型) 默認為 0
@@ -1142,9 +1243,10 @@ class PatreonScraperRefactored:
 
             'free_chat_count', 'paid_chat_count',# 是否有聊天室
 
+            'membership_tier_count','membership_tiers_json',
+
             'about_word_count' # 其他和未知類型
         ]
-        # 可以根據需要添加更多預期的文章類型欄位
 
         fieldnames = sorted(list(set(fieldnames)), key=lambda x: fieldnames.index(x)) # 去重並保持順序
         print(f"CSV 欄位將是: {fieldnames}")
