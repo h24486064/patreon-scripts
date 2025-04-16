@@ -57,7 +57,7 @@ class PatreonScraperRefactored:
     # 建議優先使用 ID、穩定的 class、data-* 屬性或基於文本內容的相對 XPath/CSS。
     SELECTORS = {
         # 靜態內容
-        "creator_name": (By.XPATH, "//header//h1/div[@data-is-key-element='true']"), # 示例：嘗試 data-testid 或 header h1
+        "creator_name": (By.XPATH, "//h1[contains(@class, 'eEyNbR')]"), # 示例：嘗試 data-testid 或 header h1
         "patron_count": (By.XPATH, "//span[@data-tag='patron-count']"), # 示例：查找包含特定文本的 span
         "total_posts": (By.XPATH, "//span[@data-tag='creation-count']"), # 示例：查找包含特定文本的 span
         # "monthly_income": (By.XPATH, "//span[contains(text(), '$')]/parent::li/span"), # 收入信息可能受隱私設置影響，較難獲取
@@ -103,11 +103,14 @@ class PatreonScraperRefactored:
         "chat_lock_icon": (By.XPATH, ".//svg[@data-tag='IconLock']"),
         #會籍
         "tier_card": (By.XPATH, ".//div[@data-tag='tier-card']"),
-        "tier_name": (By.XPATH, ".//div[contains(@class, 'hrsRPq')]/div[1]"),
-        "tier_price": (By.XPATH, ".//span[contains(@class, 'bznMvN')]/div[starts-with(normalize-space(.), '$')]"),
-        "tier_description_area": (By.XPATH, ".//div[contains(@class, 'kTpbRT')]"),
+        "tier_name": (By.XPATH, ".//div[contains(@aria-label, ' per month')]/preceding-sibling::div"),
+        "tier_price": (By.XPATH, ".//div[contains(@aria-label, ' per month')]//div[starts-with(normalize-space(.), '$')]"),
+        "tier_description_area": (By.XPATH, ".//a[@data-tag='patron-checkout-continue-button']/ancestor::div[2]/following-sibling::div"),
 
-        
+        "tier_carousel_right_button": (By.XPATH, "//button[@data-tag='carousel-right']"),
+        # 只選擇可點擊的右按鈕 (aria-disabled 不是 true)
+        "tier_carousel_right_button_clickable": (By.XPATH, "//button[@data-tag='carousel-right' and (not(@aria-disabled) or @aria-disabled='false')]"),
+        "tier_carousel_left_button_clickable": (By.XPATH, "//button[@data-tag='carousel-left' and (not(@aria-disabled) or @aria-disabled='false')]"),
 
     }
 
@@ -483,86 +486,197 @@ class PatreonScraperRefactored:
 
         return {'free_chat_count': free_chat_count, 'paid_chat_count': paid_chat_count}
 
+# 在 PatreonScraperRefactored 類別中
+
+# 在 PatreonScraperRefactored 類別中
+
     def get_membership_tiers(self) -> List[Dict[str, Any]]:
         """
         爬取創作者定義的會員方案 (Tiers) 及其資訊。
-        直接查找頁面上的所有 tier card。
-
-        Returns:
-            List[Dict[str, Any]]: ... (返回值說明不變) ...
+        通過滾動輪播，在發現新卡片時立即解析並存儲其內容。
         """
-        print("正在獲取會員方案 (Tiers) 資訊...")
-        tiers_data = []
+        print("正在獲取會員方案 (Tiers) 資訊 (發現時立即解析策略)...")
+        discovered_tiers_data = {} # 字典: {card_id: tier_info_dict}
+
         # --- 獲取選擇器 ---
         card_selector = self.SELECTORS["tier_card"]
-        name_selector = self.SELECTORS["tier_name"]
-        price_selector = self.SELECTORS["tier_price"]
-        desc_selector = self.SELECTORS["tier_description_area"]
+        carousel_right_selector = self.SELECTORS["tier_carousel_right_button"]
+        carousel_left_clickable_selector = self.SELECTORS["tier_carousel_left_button_clickable"]
+        carousel_right_clickable_selector = self.SELECTORS["tier_carousel_right_button_clickable"]
 
-        # --- 步驟 1: (可選) 檢查是否需要點擊 "Membership" 標籤頁 ---
-        # ... (這部分邏輯可以保留，如果需要的話) ...
-        # 如果點擊了標籤頁，需要等待 tier_card 出現
-        # try:
-        #     self.wait.until(EC.visibility_of_element_located(card_selector))
-        #     print("會員方案卡片已加載。")
-        # except TimeoutException:
-        #     print("等待會員方案卡片超時。")
-        #     return tiers_data
+        # --- 步驟 1: 處理輪播 ---
+        print("檢查是否存在會員方案輪播...")
+        right_button_exists = self._find_element(carousel_right_selector, timeout=2)
 
-        # --- 步驟 2: 直接查找頁面上所有的方案卡片 ---
-        print(f"查找所有方案卡片: {card_selector}")
-        # 不再需要 tier_container，直接用 self.driver 查找
-        tier_cards = self._find_elements(card_selector)
-        print(f"找到 {len(tier_cards)} 個會員方案卡片。")
+        if right_button_exists:
+            print("檢測到會員方案輪播。")
+            max_clicks = 15
+            click_count_left = 0
+            click_count_right = 0
 
-        if not tier_cards:
-            print("頁面上未找到任何會員方案卡片。")
-            return tiers_data
+            # --- 1a: 先滾動到最左邊 ---
+            print("  嘗試滾動到最左端...")
+            while click_count_left < max_clicks:
+                clickable_button = self._find_element(carousel_left_clickable_selector, timeout=0.5)
+                if clickable_button:
+                    if self._click_element(carousel_left_clickable_selector, timeout=1):
+                        click_count_left += 1; time.sleep(0.6)
+                    else: break
+                else: break
+            if click_count_left == max_clicks: print(f"警告：向左滾動達到最大點擊次數 ({max_clicks})。")
+            print("  應已到達最左端。")
 
-        # --- 步驟 3: 遍歷每個卡片，提取資訊 ---
-        for i, card in enumerate(tier_cards):
-            print(f"  處理第 {i+1}/{len(tier_cards)} 個方案...")
-            # 使用 get() 提供默認值，更安全
-            tier_info = {'name': '', 'price': 0.0, 'description_word_count': 0}
-            try:
-                # 提取名稱 (相對於卡片查找)
-                name_element = self._find_element(name_selector, parent=card, timeout=1) # 短超時，元素應該已存在
-                if name_element:
-                    tier_info['name'] = name_element.text.strip()
-                    print(f"    名稱: {tier_info['name']}")
-                # else: print("    未能找到方案名稱。") # 減少日誌輸出
+            # --- 1b: 初始掃描並處理 ---
+            print("  初始掃描並處理可見卡片...")
+            initial_cards = self._find_elements(card_selector)
+            print(f"    找到 {len(initial_cards)} 個初始卡片元素。")
+            for card_element in initial_cards:
+                parsed_info = self._parse_tier_card(card_element)
+                if parsed_info and parsed_info.get('tier_id'):
+                     card_id = parsed_info['tier_id']
+                     if card_id not in discovered_tiers_data: # 確保只添加一次
+                          print(f"    初始發現並處理卡片 ID: {card_id}")
+                          discovered_tiers_data[card_id] = parsed_info
+                     # else: print(f"    卡片 ID {card_id} 已處理過 (初始)。") # 調試用
+                # else: print(f"    一個初始卡片解析失敗或無 ID。") # 調試用
 
-                # 提取價格 (相對於卡片查找)
-                price_element = self._find_element(price_selector, parent=card, timeout=1)
-                if price_element:
-                    price_text = price_element.text.strip()
-                    price_value = parse_number(price_text) # 使用外部輔助函數
-                    tier_info['price'] = price_value if price_value is not None else 0.0
-                    print(f"    價格: {tier_info['price']} (來自文本: '{price_text}')")
-                # else: print("    未能找到方案價格。")
+            print(f"  初始處理後，已記錄 {len(discovered_tiers_data)} 個方案。")
 
-                # 提取描述區域並計算字數 (相對於卡片查找)
-                desc_area = self._find_element(desc_selector, parent=card, timeout=1)
-                if desc_area:
-                    desc_text = desc_area.text
-                    if desc_text:
-                        words = desc_text.strip().split()
-                        tier_info['description_word_count'] = len(words)
-                        print(f"    描述字數: {tier_info['description_word_count']}")
-                    # else: print("    描述區域文本為空。")
-                # else: print("    未能找到方案描述區域。")
+            # --- 1c: 向右滾動，發現新卡片時處理 ---
+            print("  嘗試向右滾動並處理新出現的卡片...")
+            while click_count_right < max_clicks:
+                clickable_button = self._find_element(carousel_right_clickable_selector, timeout=0.5)
+                if clickable_button:
+                    if self._click_element(carousel_right_clickable_selector, timeout=1):
+                        click_count_right += 1
+                        time.sleep(0.8) # 等待滾動和可能的加載
 
-                tiers_data.append(tier_info)
+                        # 查找當前可見卡片
+                        current_cards = self._find_elements(card_selector)
+                        # print(f"    右滾第 {click_count_right} 次後找到 {len(current_cards)} 個卡片元素。") # 調試用
+                        found_new_in_step = False
+                        for card_element in current_cards:
+                             card_id = card_element.get_attribute('id') # 先獲取ID檢查
+                             if card_id and card_id not in discovered_tiers_data:
+                                 # 發現了之前未記錄的 ID，立即解析
+                                 print(f"    發現新卡片 ID: {card_id}，嘗試處理...")
+                                 parsed_info = self._parse_tier_card(card_element)
+                                 if parsed_info: # 確保解析成功
+                                     discovered_tiers_data[card_id] = parsed_info
+                                     found_new_in_step = True
+                                 # else: print(f"    新卡片 ID {card_id} 解析失敗。") # 調試用
 
-            except StaleElementReferenceException:
-                 print(f"  處理第 {i+1} 個方案時元素過時，跳過此方案。")
-                 continue
-            except Exception as e:
-                 print(f"  處理第 {i+1} 個方案時發生錯誤: {e}")
-                 continue # 跳過這個方案，繼續處理下一個
+                        # if not found_new_in_step: print(f"    此步未發現新卡片。") # 調試用
 
+                    else:
+                        print("    點擊向右按鈕失敗，停止向右滾動。")
+                        break
+                else:
+                    print("    未找到可點擊的向右按鈕，應已到達最右端。")
+                    break
+            if click_count_right == max_clicks: print(f"警告：向右滾動達到最大點擊次數 ({max_clicks})。")
+
+        else:
+            # --- 處理沒有輪播的情況 ---
+            print("未檢測到會員方案輪播按鈕。直接查找並處理所有卡片...")
+            all_cards = self._find_elements(card_selector)
+            print(f"  找到 {len(all_cards)} 個卡片元素。")
+            for card_element in all_cards:
+                 parsed_info = self._parse_tier_card(card_element)
+                 if parsed_info and parsed_info.get('tier_id'):
+                      card_id = parsed_info['tier_id']
+                      if card_id not in discovered_tiers_data: # 確保只添加一次
+                           discovered_tiers_data[card_id] = parsed_info
+
+        # --- 步驟 2: 整理結果 ---
+        tiers_data = list(discovered_tiers_data.values()) # 將字典的值（解析好的 tier_info）轉換為列表
         print(f"會員方案資訊提取完成，共 {len(tiers_data)} 個方案。")
         return tiers_data
+
+# 在 PatreonScraperRefactored 類別中修改
+
+    def _parse_tier_card(self, card_element: webdriver.remote.webelement.WebElement) -> Optional[Dict[str, Any]]:
+        """
+        解析單個會員方案卡片元素。
+        使用 get_attribute('textContent') 替代 .text 嘗試獲取不可見元素的文本。
+        """
+        card_id = None
+        try:
+            # (獲取 ID 的邏輯不變，包含重試)
+            for _ in range(2):
+                try:
+                    card_id = card_element.get_attribute('id')
+                    if card_id: break
+                except StaleElementReferenceException: time.sleep(0.3)
+            if not card_id:
+                print("    警告：卡片元素沒有 ID 或多次嘗試後仍 Stale，無法處理。")
+                return None
+
+            tier_info = {'name': '', 'price': 0.0, 'description_word_count': 0, 'tier_id': card_id}
+            max_retries = 3
+            retry_delay = 0.5
+
+            # --- 修改點：使用 textContent ---
+            def get_element_text_content(selector, parent):
+                element = None
+                for attempt in range(max_retries):
+                    try:
+                        element = self._find_element(selector, parent=parent, timeout=1)
+                        if element:
+                            # 嘗試獲取 textContent
+                            content = element.get_attribute('textContent')
+                            if content is not None: # 確保屬性存在
+                                return content.strip() # 返回去除首尾空格的文本
+                            else:
+                                # 如果 textContent 為 None，嘗試 innerText 作為備用
+                                content = element.get_attribute('innerText')
+                                return content.strip() if content is not None else ""
+                    except StaleElementReferenceException:
+                        if attempt == max_retries - 1: print(f"      查找元素時 Stale (ID: {card_id}, 多次重試失敗)")
+                        else: time.sleep(retry_delay)
+                    except TimeoutException:
+                        print(f"      查找元素時 Timeout (ID: {card_id}, attempt {attempt+1})")
+                        break # 超時通常不需重試相同元素
+                    except Exception as e_find:
+                         print(f"      查找或獲取文本時未知錯誤 (ID: {card_id}): {e_find}")
+                         break # 其他錯誤也退出重試
+                return "" # 如果所有嘗試都失敗，返回空字符串
+
+            # 提取名稱
+            name_text = get_element_text_content(self.SELECTORS["tier_name"], card_element)
+            tier_info['name'] = name_text
+            print(f"    DEBUG: 原始名稱文本 (ID: {card_id}): '{name_text}'") # 增加名稱的 DEBUG
+
+            # 提取價格
+            price_text_raw = get_element_text_content(self.SELECTORS["tier_price"], card_element)
+            print(f"    DEBUG: 原始價格文本 (ID: {card_id}): '{price_text_raw}'")
+            if price_text_raw: # 確保文本不是空的再解析
+                price_value = parse_number(price_text_raw)
+                tier_info['price'] = price_value if price_value is not None else 0.0
+
+            # 提取描述區域
+            desc_text_raw = get_element_text_content(self.SELECTORS["tier_description_area"], card_element)
+            print(f"    DEBUG: 原始描述文本 (ID: {card_id}): '{desc_text_raw[:100]}...'") # 打印前100個字符
+            if desc_text_raw:
+                words = desc_text_raw.strip().split()
+                tier_info['description_word_count'] = len(words)
+            # --- 修改點結束 ---
+
+            if tier_info['name'] or tier_info['price'] > 0:
+                 print(f"    成功解析/記錄卡片 ID {card_id}: Name='{tier_info['name']}', Price={tier_info['price']}, DescWords={tier_info['description_word_count']}")
+                 return tier_info
+            else:
+                 print(f"    卡片 ID {card_id} 解析完成，但未提取到有效 Name 或 Price。")
+                 return tier_info # 仍然返回，標記已處理
+
+        # (外層的 Stale 和 Exception 捕獲不變)
+        except StaleElementReferenceException:
+            print(f"  解析卡片 (ID: {card_id or '未知'}) 時卡片元素本身 Stale。")
+            return None
+        except Exception as e:
+            print(f"  解析卡片 (ID: {card_id or '未知'}) 時發生未知錯誤: {e}")
+            return None
+
 
     def _parse_year_item(self, item_element: webdriver.remote.webelement.WebElement) -> Optional[Tuple[str, int]]:
         """解析年份下拉選單項目"""
@@ -611,59 +725,73 @@ class PatreonScraperRefactored:
     def _parse_type_item(self, item_element: webdriver.remote.webelement.WebElement) -> Optional[Tuple[str, int]]:
         """
         解析文章類型下拉選單項目 (接收 <button> 元素)。
-        優先使用 SVG 的 data-tag 判斷類型，從內層 div 提取數量。
+        優先使用 SVG 的 data-tag 判斷類型，從 SVG 同級的 div 提取數量。
         """
-        # (這個函數在上一輪已經修改過，適應了 button 結構，
-        # 主要依賴 SVG data-tag 和內層 div 的文本，這裡保持不變或微調)
         try:
             type_name = "unknown"
             count = 0 # 默認數量為 0
 
-            # 1. 提取數量 (從內層 div)
+            # 1. 提取類型 (優先用 SVG data-tag) - 這部分邏輯看起來仍然有效
             try:
-                # TODO: 確認這個內層 div 的選擇器是否穩定
-                text_div = item_element.find_element(By.CSS_SELECTOR, "div.sc-jRQBWg")
+                # 使用 CSS Selector 查找 SVG 仍然可以
+                svg_element = item_element.find_element(By.CSS_SELECTOR, "svg[data-tag]")
+                data_tag = svg_element.get_attribute("data-tag")
+                # (這裡可以根據需要添加或更新映射)
+                tag_to_type = {
+                    "IconPhoto": "image_posts", "IconPoll": "poll_posts", "IconEditorText": "text_posts",
+                    "IconVideo": "video_posts", "IconHeadphones": "audio_posts", # <-- 確保有 audio
+                    "IconPodcast": "podcast_posts", # <-- 根據需要添加 Podcast
+                    "IconLink": "link_posts", "IconLivestream": "livestream_posts",
+                    # 可以根據觀察到的其他 data-tag 添加更多類型
+                }
+                # 如果找不到映射，則歸類為 other_posts
+                type_name = tag_to_type.get(data_tag, f"other_posts_{data_tag}") # fallback 包含 data_tag 幫助識別
+                print(f"  從 data-tag '{data_tag}' 解析到類型: {type_name}")
+            except NoSuchElementException:
+                print(f"  按鈕內未找到帶 data-tag 的 SVG，無法確定類型。")
+                type_name = "unknown_type_no_svg" # 標記為未知類型
+
+
+            # 2. 提取數量 (從包含文本的 div) - !! 修改的部分 !!
+            try:
+                # 使用 XPath 找到包含 SVG 的 span 的下一個同級 div
+                # .// 表示在當前 item_element (按鈕) 內部查找
+                # span[svg[@data-tag]] 找到包含帶 data-tag 的 svg 的 span
+                # /following-sibling::div 找到該 span 的下一個 div 兄弟節點
+                text_div = item_element.find_element(By.XPATH, ".//span[svg[@data-tag]]/following-sibling::div")
                 text = text_div.text.strip()
-                count_match = re.search(r'\((\d+)\)', text)
+                # 解析數量
+                count_match = re.search(r'\((\d+)\)', text) # 從文本中找 (數字)
                 if count_match:
                     count = int(count_match.group(1))
+                    print(f"  從文本 '{text}' 中提取到數量: {count}")
                 else:
-                    print(f"  在類型文本 '{text}' 中未找到括號內的計數。")
+                    print(f"  在文本 '{text}' 中未找到括號內的計數。")
+                    # 如果需要，可以嘗試從 text 中解析類型名稱作為備用
+                    # type_name_from_text = re.sub(r'\s*\(\d+\)\s*$', '', text).strip().lower()
+                    # if type_name == "unknown_type_no_svg": type_name = f"{type_name_from_text}_posts"
+
             except NoSuchElementException:
-                print(f"  在類型按鈕內找不到文本 div。")
+                # 如果找不到那個特定的 div，可能是結構又變了，或者沒有 SVG (上面的 try 會先處理)
+                print(f"  在按鈕內找不到預期的包含文本的 div (SVG 的同級元素)。HTML: {item_element.get_attribute('outerHTML')}")
+                # 可以嘗試直接獲取按鈕的文本作為備用
+                try:
+                     button_text = item_element.text.strip()
+                     count_match = re.search(r'\((\d+)\)', button_text)
+                     if count_match: count = int(count_match.group(1))
+                     print(f"  備用：從按鈕文本 '{button_text}' 提取數量: {count}")
+                except: pass # 忽略備用方案的錯誤
+
             except Exception as e:
                 print(f"  提取類型數量時出錯: {e}")
 
-
-            # 2. 提取類型 (優先用 SVG data-tag)
-            try:
-                svg_element = item_element.find_element(By.CSS_SELECTOR, "svg[data-tag]")
-                data_tag = svg_element.get_attribute("data-tag")
-                tag_to_type = {
-                    "IconPhoto": "image_posts", "IconPoll": "poll_posts", "IconEditorText": "text_posts",
-                    "IconVideo": "video_posts", "IconHeadphones": "audio_posts", "IconLink": "link_posts",
-                    "IconLivestream": "livestream_posts",
-                }
-                type_name = tag_to_type.get(data_tag, "other_posts")
-                print(f"  從 data-tag '{data_tag}' 解析到類型: {type_name}")
-            except NoSuchElementException:
-                print(f"  按鈕內未找到帶 data-tag 的 SVG，回退到文本判斷。")
-                # 回退(fallback)到文本判斷 (如果需要的話，但 data-tag 通常更可靠)
-                # (如果 data-tag 可靠，甚至可以省略文本判斷邏輯)
-                # ... 你可以保留或移除基於文本的類型判斷 ...
-                if 'text_div' in locals(): # 確保 text_div 已找到
-                    text_lower = text_div.text.strip().lower()
-                    if "image" in text_lower or "圖片" in text_lower: type_name = "image_posts"
-                    # ... 其他文本判斷 ...
-                    else: type_name = "other_posts" # 根據文本判斷的 fallback
-                else:
-                    type_name = "unknown_type_no_svg_no_text"
-
-
             # 返回結果
-            if type_name != "unknown":
-                print(f"  解析到類型項目: {type_name} = {count}")
+            if type_name != "unknown": # 只要類型不是 unknown 就返回
+                print(f"  => 解析到類型項目: {type_name} = {count}")
                 return type_name, count
+            else:
+                 print(f"  => 無法完全解析此類型項目。")
+                 return None # 返回 None 表示解析失敗
 
         except StaleElementReferenceException:
             print("  解析類型項目時元素過時。")
@@ -671,7 +799,7 @@ class PatreonScraperRefactored:
         except Exception as e:
             print(f"  解析類型項目時發生未知錯誤: {e}")
             return None
-        return None
+        # return None # 確保所有路徑都有返回值
 
 
     def _get_dropdown_data(self,
@@ -1046,6 +1174,7 @@ class PatreonScraperRefactored:
             import pprint
             pprint.pprint(static_data)
             social_links_data = self.get_social_links()
+            membership_tiers_data = self.get_membership_tiers()
             post_types_data = self.get_post_types()
             post_years_data = self.get_post_years()
             post_tiers_data = self.get_post_tiers() # Tier 數據
@@ -1055,7 +1184,6 @@ class PatreonScraperRefactored:
             free_chat_count = chat_details.get('free_chat_count', 0)
             paid_chat_count = chat_details.get('paid_chat_count', 0)
             has_chat_tab = 'yes' if (free_chat_count > 0 or paid_chat_count > 0) else 'no'
-            membership_tiers_data = self.get_membership_tiers()
 
             about_word_count = self.get_about_section_word_count()
 
@@ -1105,8 +1233,6 @@ class PatreonScraperRefactored:
 
                 # 計數數據
                 'tier_count': len(post_tiers_data),
-                'total_likes': social_values_data.get('total_likes', 0),
-                'total_comments': social_values_data.get('total_comments', 0),
                 'total_links': total_links,
                 'social_link_count': social_links_data.get('social_link_count', 0),
 
@@ -1126,7 +1252,7 @@ class PatreonScraperRefactored:
                 'tier_count': len(post_tiers_data),
                 'membership_tier_count': len(membership_tiers_data), # 計算會員等級數量
                 'about_word_count': about_word_count,
-
+    
             
             }
 
@@ -1165,10 +1291,10 @@ class PatreonScraperRefactored:
         row_data = {}
 
         # 填充基本欄位
-        for field in ['URL', 'creator_name', 'total_post', 'patreon_number', 'monthly_income_element',
+        for field in ['URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
                       'tier_count', 'total_links', 'social_link_count','about_word_count',
                       'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
-                      'total_likes_combined', 'total_comments_combined','has_chat_tab', 'free_chat_count', 'paid_chat_count', 'membership_tier_count',
+                      'has_chat_tab', 'free_chat_count', 'paid_chat_count', 'membership_tier_count',
                       ]:
             if field in fieldnames:
                 default_val = '' if field in ['URL', 'creator_name'] else ('no' if field == 'has_chat_tab' else 0)
@@ -1227,10 +1353,10 @@ class PatreonScraperRefactored:
         # 順序可以根據你的偏好調整
         fieldnames = [
             # 基本信息
-            'URL', 'creator_name', 'total_post', 'patreon_number', 'monthly_income_element',
+            'URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
             # 聚合信息 (字典字串 + 計數)
             'tier_post_data', 'post_year_count', 'tier_count',
-            'total_likes', 'total_comments', 'total_links',
+            'total_links',
             # 社群連結狀態 + 計數
             'facebook', 'twitter', 'instagram', 'youtube', 'twitch', 'tiktok', 'discord', 'social_link_count',
             # 文章類型計數 (展開)
