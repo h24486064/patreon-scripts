@@ -1421,7 +1421,6 @@ class PatreonScraperRefactored:
             except Exception as e:
                 print(f"關閉 WebDriver 時出錯: {e}")
 
-# --- 主執行區塊 ---
 def load_urls_from_txt(filepath: str) -> List[str]:
     """從文字檔讀取 URL 列表"""
     urls = []
@@ -1440,18 +1439,17 @@ def load_urls_from_txt(filepath: str) -> List[str]:
     return urls
 
 if __name__ == "__main__":
-    # --- 配置 ---
-    # TODO: 確保這個路徑對你的環境是正確的
-    # 建議使用相對路徑或更健壯的路徑管理
-    url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") # 示例：假設 txt 文件與 py 文件同目錄
-    # url_file = "D:/成功大學/論文資料/urls_for_scrape.txt" # 或者使用你的絕對路徑
+    #紀錄爬蟲時間
+    start_time_monotonic = time.monotonic()
+    print(f"爬蟲開始執行於: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("-" * 30)
+    url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") 
+    
 
-    output_directory = os.path.join(os.path.dirname(__file__), "Patreon_Scraped_Data") # 示例：輸出到子目錄
-    # output_directory = "D:/成功大學/論文資料/爬蟲資料" # 或者使用你的絕對路徑
+    output_directory = os.path.join(os.path.dirname(__file__), "Patreon_Scraped_Data") 
 
-    run_headless = False # 設置為 True 在背景運行，設置為 False 顯示瀏覽器窗口
+    run_headless = False   # 是否使用無頭模式 (True 或 False)
 
-    # --- 執行 ---
     target_urls = load_urls_from_txt(url_file)
 
     if not target_urls:
@@ -1459,7 +1457,6 @@ if __name__ == "__main__":
     else:
         scraper = None # 初始化為 None
         try:
-            # 傳入輸出目錄和 headless 選項
             scraper = PatreonScraperRefactored(output_dir=output_directory, headless=run_headless)
             print(f"準備開始爬取 {len(target_urls)} 個目標...")
             scraper.scrape_multiple_targets(target_urls)
@@ -1469,7 +1466,23 @@ if __name__ == "__main__":
             import traceback
             traceback.print_exc()
         finally:
-            # 無論成功或失敗，確保關閉 scraper (如果已成功初始化)
             if scraper:
                 scraper.close()
-            print("程式執行完畢。")
+
+        end_time_monotonic = time.monotonic() # 記錄結束時間
+        total_duration_seconds = end_time_monotonic - start_time_monotonic
+
+        minutes, seconds = divmod(total_duration_seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        
+        print("-" * 30)
+        print(f"爬蟲總執行時間:")
+        if hours > 0:
+            print(f"  {int(hours)} 小時 {int(minutes)} 分鐘 {seconds:.2f} 秒")
+        elif minutes > 0:
+            print(f"  {int(minutes)} 分鐘 {seconds:.2f} 秒")
+        else:
+            print(f"  {seconds:.2f} 秒")
+        print("-" * 30)
+
+        print("程式執行完畢。")
