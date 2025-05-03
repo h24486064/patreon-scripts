@@ -1,0 +1,4 @@
+selenium
+webdriver-manager
+requests
+# 其他你的腳本需要的庫
