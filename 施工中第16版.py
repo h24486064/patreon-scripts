@@ -18,6 +18,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException,
 from typing import Optional, Dict, Any, Tuple, Callable, List
 
 # --- Helper Functions (可以放在類別外部或內部作為靜態方法) ---
+# 只為了測試jenkins
 
 def parse_number(text: Optional[str]) -> Optional[float]:
     """從文本中解析數字，處理 K 和 M"""
