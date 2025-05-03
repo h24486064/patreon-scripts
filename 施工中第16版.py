@@ -3,6 +3,7 @@ import csv
 import os
 import re
 import json
+import sys
 import random # 用於隨機延遲
 from datetime import datetime
 import requests # 用於解析 URL 參數
@@ -1453,6 +1454,15 @@ if __name__ == "__main__":
     start_time_monotonic = time.monotonic()
     print(f"爬蟲開始執行於: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("-" * 30)
+
+    max_urls_to_process = None
+    if len(sys.argv) > 1:
+        try:
+            max_urls_to_process = int(sys.argv[1])
+            print(f"檢測到參數，將最多處理 {max_urls_to_process} 個 URL。")
+        except ValueError:
+            print("警告：提供的參數不是有效的數字，將處理所有 URL。")
+
     url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") 
     
 
@@ -1461,6 +1471,10 @@ if __name__ == "__main__":
     run_headless = False   # 是否使用無頭模式 (True 或 False)
 
     target_urls = load_urls_from_txt(url_file)
+
+    if max_urls_to_process is not None and max_urls_to_process > 0:
+        target_urls = target_urls[:max_urls_to_process]
+        print(f"已限制 URL 列表，實際處理數量: {len(target_urls)}")
 
     if not target_urls:
         print("未能載入任何 URL，程式結束。")
