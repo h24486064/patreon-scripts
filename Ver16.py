@@ -1051,7 +1051,7 @@ class PatreonScraperRefactored:
             try:
                 # 3.1 檢查是否為私密貼文 (在卡片內部查找鎖定標誌)
                 # 使用 timeout=0.1 快速檢查是否存在，避免等待
-                lock_indicator = self._find_element(self.SELECTORS["lock_icon_indicator"], parent=card, timeout=1)
+                lock_indicator = self._find_element(self.SELECTORS["lock_icon_indicator"], parent=card, timeout=0.1)
                 if lock_indicator:
                     is_locked = True
                     print("貼文已鎖定。")
@@ -1062,7 +1062,7 @@ class PatreonScraperRefactored:
                 # 注意選擇器需要是相對的，或者確保全局選擇器能正確匹配到卡片內的元素
                 # 使用 '.' 開頭的相對 XPath
                 like_element_xpath = ".//span[@data-tag='like-count']"
-                like_element = self._find_element((By.XPATH, like_element_xpath), parent=card, timeout=1)
+                like_element = self._find_element((By.XPATH, like_element_xpath), parent=card, timeout=0.1)
                 if like_element:
                     like_text = like_element.text.strip()
                     count = parse_number(like_text) # 使用輔助函數
@@ -1073,7 +1073,7 @@ class PatreonScraperRefactored:
                 # 3.3 在卡片內部查找留言數
                 # 使用 '.' 開頭的相對 XPath
                 comment_element_xpath = ".//a[@data-tag='comment-post-icon']"
-                comment_element = self._find_element((By.XPATH, comment_element_xpath), parent=card, timeout=1)
+                comment_element = self._find_element((By.XPATH, comment_element_xpath), parent=card, timeout=0.1)
                 if comment_element:
                     comment_text = comment_element.text.strip()
                     count = parse_number(comment_text)
