@@ -35,8 +35,9 @@ from typing import Optional, Dict, Any, Tuple, Callable, List
 
 def parse_number(text: Optional[str]) -> Optional[float]:
     """從文本中解析數字，處理 K 和 M"""
-    if not text: return None
-    clean = text.replace(',', '').strip()
+    if not text: 
+        return None
+    clean = re.sub(r'[^0-9KkMm\.]', '', text)
     multiplier = 1
     if clean[-1].lower() == 'k':
        multiplier = 1_000
@@ -53,8 +54,8 @@ def parse_number(text: Optional[str]) -> Optional[float]:
 def extract_integer(text: Optional[str]) -> Optional[int]:
     """從文本中提取第一個整數"""
     if not text: return None
-    matches = re.findall(r'\d+', str(text))
-    return int(matches[0]) if matches else None
+    m = re.findall(r'\d+', str(text))
+    return int(m.group()) if m else None
 
 def extract_year_and_count(text: str) -> Optional[Tuple[str, int]]:
     """從 'YYYY (Count)' 格式的文本中提取年份和數量"""
@@ -305,7 +306,7 @@ class PatreonScraperRefactored:
             income_text = income_element.text.strip()
             income_value = parse_number(income_text) # 使用輔助函數解析
             if income_value is not None:
-                static_data['income_per_month'] = income_value
+                static_data['income_per_month'] = parse_number(income_text) or 0
                 print(f"  找到 Monthly Income: {static_data['income_per_month']} (來自文本: {income_text})")
             else:
                 print(f"  找到月收入元素，但無法從文本 '{income_text}' 解析數字。")
@@ -329,7 +330,7 @@ class PatreonScraperRefactored:
                           number_text = span.text.strip()
                           break
                 if number_text:
-                     static_data['total_posts'] = parse_number(number_text) or 0
+                     static_data['total_posts'] = extract_integer(number_text) or 0
                      print(f"  找到 Total Posts: {static_data['total_posts']} (來自文本: {number_text})")
                 else:
                      print(f"  找到 Post 標籤，但未能提取數字。")
