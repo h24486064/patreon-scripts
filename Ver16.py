@@ -3,7 +3,7 @@ import csv
 import os
 import re
 import json
-import sys
+import argparse, sys
 import random # 用於隨機延遲
 from datetime import datetime
 import requests # 用於解析 URL 參數
@@ -155,14 +155,15 @@ class PatreonScraperRefactored:
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--window-size=1920,1080") 
         chrome_options.add_argument("--start-maximized") # 嘗試最大化視窗
         chrome_options.add_argument("--disable-infobars")
         chrome_options.add_argument("--disable-extensions")
         # 設置語言偏好，可能影響頁面文本
         chrome_options.add_experimental_option('prefs', {'intl.accept_languages': 'en,en_US'})
         if headless:
-            chrome_options.add_argument("--headless")
-            print("啟用無頭模式。")
+            chrome_options.add_argument("--headless=new") 
+            print("啟用新版無頭模式 (--headless=new) 並固定視窗 1920×1080")
 
         try:
             service = Service(ChromeDriverManager().install())
@@ -1464,6 +1465,17 @@ if __name__ == "__main__":
     start_time_monotonic = time.monotonic()
     print(f"爬蟲開始執行於: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("-" * 30)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--headless", action="store_true",
+                        help="run Chrome in headless=new mode")
+    parser.add_argument("max_urls", nargs="?", type=int,
+                        help="limit URL count for quick test")
+    args = parser.parse_args()
+
+    run_headless = args.headless        # ←改成讀 CLI
+    max_urls_to_process = args.max_urls
+
 
     max_urls_to_process = None
     if len(sys.argv) > 1:
