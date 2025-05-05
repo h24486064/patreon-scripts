@@ -36,12 +36,19 @@ from typing import Optional, Dict, Any, Tuple, Callable, List
 def parse_number(text: Optional[str]) -> Optional[float]:
     """從文本中解析數字，處理 K 和 M"""
     if not text: return None
-    clean_text = re.sub(r'[^\d.KMk]', '', str(text)).upper()
+    clean = text.replace(',', '').strip()
+    multiplier = 1
+    if clean[-1].lower() == 'k':
+       multiplier = 1_000
+       clean = clean[:-1]           # 去掉 K
+    elif clean[-1].lower() == 'm':
+       multiplier = 1_000_000
+       clean = clean[:-1]           # 去掉 M
+        # 解析成數字
     try:
-        if 'K' in clean_text: return float(clean_text.replace('K', '')) * 1000
-        elif 'M' in clean_text: return float(clean_text.replace('M', '')) * 1_000_000
-        return float(clean_text)
-    except ValueError: return None
+       return float(clean) * multiplier
+    except ValueError:
+       return None
 
 def extract_integer(text: Optional[str]) -> Optional[int]:
     """從文本中提取第一個整數"""
@@ -90,7 +97,7 @@ class PatreonScraperRefactored:
 
         # 社交互動
         "like_count_element": (By.XPATH, "//span[@data-tag='like-count']"), # 示例
-        "comment_count_element": (By.XPATH, "//a[@data-tag='comment-post-icon']//p"), # 示例
+        "comment_count_element": (By.XPATH, ".//a[@data-tag='comment-post-icon']"), # 示例
 
         # 社群連結 (在特定區域查找)
         "social_link_area": (By.XPATH, "//div[@data-testid='creator-profile-social-links'] | //section[contains(@aria-label,'Social')] | //body"), # 示例：找到包含社群連結的父容器
@@ -1060,18 +1067,18 @@ class PatreonScraperRefactored:
                 like_element = self._find_element((By.XPATH, like_element_xpath), parent=card, timeout=0.1)
                 if like_element:
                     like_text = like_element.text.strip()
-                    count = extract_integer(like_text) # 使用輔助函數
+                    count = parse_number(like_text) # 使用輔助函數
                     if count is not None:
                         post_likes = count
                         print(f"找到按讚數: {post_likes}")
 
                 # 3.3 在卡片內部查找留言數
                 # 使用 '.' 開頭的相對 XPath
-                comment_element_xpath = ".//a[@data-tag='comment-post-icon']//p"
+                comment_element_xpath = ".//a[@data-tag='comment-post-icon']"
                 comment_element = self._find_element((By.XPATH, comment_element_xpath), parent=card, timeout=0.1)
                 if comment_element:
                     comment_text = comment_element.text.strip()
-                    count = extract_integer(comment_text)
+                    count = parse_number(comment_text)
                     if count is not None:
                         post_comments = count
                         print(f"找到留言數: {post_comments}")
@@ -1466,7 +1473,7 @@ if __name__ == "__main__":
         except ValueError:
             print("警告：提供的參數不是有效的數字，將處理所有 URL。")
 
-    url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") 
+    url_file = os.path.join(os.path.dirname(__file__), "for_test_with_3_urls.txt") 
     
 
     output_directory = os.path.join(os.path.dirname(__file__), "Patreon_Scraped_Data") 
