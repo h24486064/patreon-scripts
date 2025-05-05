@@ -37,15 +37,11 @@ def parse_number(text: Optional[str]) -> Optional[float]:
     """從文本中解析數字，處理 K 和 M"""
     if not text: 
         return None
-    clean = re.sub(r'[^0-9KkMm\.]', '', text)
+    clean = re.sub(r'[^0-9Kk\.]', '', text)
     multiplier = 1
     if clean[-1].lower() == 'k':
        multiplier = 1_000
        clean = clean[:-1]           # 去掉 K
-    elif clean[-1].lower() == 'm':
-       multiplier = 1_000_000
-       clean = clean[:-1]           # 去掉 M
-        # 解析成數字
     try:
        return float(clean) * multiplier
     except ValueError:
@@ -55,7 +51,7 @@ def extract_integer(text: Optional[str]) -> Optional[int]:
     """從文本中提取第一個整數"""
     if not text: return None
     m = re.findall(r'\d+', str(text))
-    return int(m.group()) if m else None
+    return int(m[0]) if m else 0
 
 def extract_year_and_count(text: str) -> Optional[Tuple[str, int]]:
     """從 'YYYY (Count)' 格式的文本中提取年份和數量"""
