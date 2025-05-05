@@ -20,10 +20,13 @@ from typing import Optional, Dict, Any, Tuple, Callable, List
 
 # --- Helper Functions (可以放在類別外部或內部作為靜態方法) ---
 # 只為了測試jenkins
+
 # 只為了測試jenkins
 # 只為了測試jenkins
+
+
 # 只為了測試jenkins
-# 只為了測試jenkins
+
 # 只為了測試jenkins
 #fgdgfdgfgdfg
 
