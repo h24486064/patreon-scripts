@@ -1,4 +1,13 @@
 selenium
 webdriver-manager
 requests
-# 其他你的腳本需要的庫
+time
+csv
+os
+re
+json
+sys
+random
+datetime
+ChromeDriverManager
+typing
