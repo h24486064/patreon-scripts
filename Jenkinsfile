@@ -87,4 +87,4 @@ pipeline {
             // mail to: 'your-email@example.com', subject: "CI Tests Failed: ${currentBuild.fullDisplayName}"
         }
     }
-}
+
