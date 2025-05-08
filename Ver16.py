@@ -326,7 +326,7 @@ class PatreonScraperRefactored:
                           number_text = span.text.strip()
                           break
                 if number_text:
-                     static_data['total_posts'] = extract_integer(number_text) or 0
+                     static_data['total_posts'] = parse_number(number_text) or 0
                      print(f"  找到 Total Posts: {static_data['total_posts']} (來自文本: {number_text})")
                 else:
                      print(f"  找到 Post 標籤，但未能提取數字。")
