@@ -13,23 +13,12 @@ pipeline {
         PYTHONIOENCODING = 'utf-8'
     }
 
-    stages {
-        stage('Checkout Code') {
-            steps {
-                echo 'Checking out code from SCM...'
-                // 從你的 Git 倉庫拉取程式碼
-                // branch: 'main' 可以替換為你主要的開發分支，例如 'dev'
-                // url: 'your-repository-url.git' 請替換為你的實際倉庫地址
-                git branch: 'main', url: 'your-repository-url.git'
-            }
-        }
+    // 定義所有的階段 (Stages)
+    stages { // <-- 新增 stages 區塊的開頭
 
         stage('Setup Python Environment') {
             steps {
                 echo 'Setting up Python environment and installing dependencies...'
-                // 這裡我們使用 bat step 來執行 Windows 命令
-                // Jenkins 在執行 Pipeline 時，會自動將程式碼 checkout 到一個工作目錄 (workspace)
-                // 假設你的 requirements.txt 就在這個工作目錄的根部
                 bat '''
                     REM 設定字元編碼
                     chcp 65001 > nul
@@ -82,7 +71,8 @@ pipeline {
         // stage('Setup Environment (Full Run)') { ... }
         // stage('Run Full Scrape') { ... }
         // stage('Upload Results to Google Cloud') { ... }
-    }
+
+    } // <-- 新增 stages 區塊的結束
 
     // 建置後動作 (例如：發送通知)
     post {
