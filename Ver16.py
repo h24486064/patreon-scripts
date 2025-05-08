@@ -19,24 +19,6 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException,
 from typing import Optional, Dict, Any, Tuple, Callable, List
 
 # --- Helper Functions (可以放在類別外部或內部作為靜態方法) ---
-# 只為了測試jenkins
-
-# 只為了測試jenkins
-# 只為了測試jenkins
-# 只為了測試jenkins
-# 只為了測試jenkins
-# 只為了測試jenkins
-# 只為了測試jenkins
-# 只為了測試jenkins
-# 只為了測試jenkins
-
-
-# 只為了測試jenkins
-
-# 只為了測試jenkins
-#fgdgfdgfgdfg
-
-
 
 
 def parse_number(text: Optional[str]) -> Optional[float]:
@@ -81,7 +63,7 @@ class PatreonScraperRefactored:
     # 建議優先使用 ID、穩定的 class、data-* 屬性或基於文本內容的相對 XPath/CSS。
     SELECTORS = {
         # 靜態內容
-        "creator_name": (By.XPATH, "//h1[contains(@class, 'eEyNbR')]"), # 示例：嘗試 data-testid 或 header h1
+        "creator_name": (By.XPATH, "//header//h1 | //h1[contains(@class, 'cm-')]"), # 示例：嘗試 data-testid 或 header h1
         "patron_count": (By.XPATH, "//span[@data-tag='patron-count']"), # 示例：查找包含特定文本的 span
         "total_posts": (By.XPATH, "//span[@data-tag='creation-count']"), # 示例：查找包含特定文本的 span
         # "monthly_income": (By.XPATH, "//span[contains(text(), '$')]/parent::li/span"), # 收入信息可能受隱私設置影響，較難獲取
@@ -332,7 +314,7 @@ class PatreonScraperRefactored:
                           number_text = span.text.strip()
                           break
                 if number_text:
-                     static_data['total_posts'] = parse_number(number_text) or 0
+                     static_data['total_posts'] = extract_integer(number_text) or 0
                      print(f"  找到 Total Posts: {static_data['total_posts']} (來自文本: {number_text})")
                 else:
                      print(f"  找到 Post 標籤，但未能提取數字。")
