@@ -71,7 +71,7 @@
             // stage('Setup Environment (Full Run)') { ... }
             // stage('Run Full Scrape') { ... }
             // stage('Upload Results to Google Cloud') { ... }
-        }
+        
     
         // 建置後動作 (例如：發送通知)
         post {
