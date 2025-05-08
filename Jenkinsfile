@@ -13,17 +13,6 @@ pipeline {
         PYTHONIOENCODING = 'utf-8'
     }
 
-    stages {
-        stage('Checkout Code') {
-            steps {
-                echo 'Checking out code from SCM...'
-                // 從你的 Git 倉庫拉取程式碼
-                // branch: 'main' 可以替換為你主要的開發分支，例如 'dev'
-                // url: 'your-repository-url.git' 請替換為你的實際倉庫地址
-                git branch: 'main', url: 'your-repository-url.git'
-            }
-        }
-
         stage('Setup Python Environment') {
             steps {
                 echo 'Setting up Python environment and installing dependencies...'
