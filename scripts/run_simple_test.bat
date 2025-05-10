@@ -6,6 +6,6 @@ REM ====== go to workspace root ======
 cd /d "%~dp0.."
 
 REM ====== run quick test (first 3 URLs) ======
-python Ver16.py 3 --headless
+python Ver16.py 2 --headless
 
 exit /b %errorlevel%

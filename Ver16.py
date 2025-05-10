@@ -681,8 +681,7 @@ class PatreonScraperRefactored:
                                     # print(f"      Year 選項: {year} = {count}") # 內部解析時已經打印
                                 else:
                                     # 如果解析失敗，但有文本，記錄原始文本
-                                    filter_data['post_year_dict'][text.lower().replace(" ", "_")] = 0
-                                    print(f"      Year 選項: {text} (解析失敗)")
+                                    print(f"      Year 選項 '{text}' (無法按 YYYY (Count) 格式解析，已忽略)")
 
 
                     except StaleElementReferenceException:
@@ -848,9 +847,9 @@ class PatreonScraperRefactored:
                 # (這裡可以根據需要添加或更新映射)
                 tag_to_type = {
                     "IconPhoto": "image_posts", "IconPoll": "poll_posts", "IconEditorText": "text_posts",
-                    "IconVideo": "video_posts", "IconHeadphones": "audio_posts", # <-- 確保有 audio
+                    "IconVideo": "video_posts", "IconMicrophone": "audio_posts", # <-- 確保有 audio
                     "IconPodcast": "podcast_posts", # <-- 根據需要添加 Podcast
-                    "IconLink": "link_posts", "IconLivestream": "livestream_posts",
+                    "IconEditorLink": "link_posts", "IconLivestream": "livestream_posts",
                     # 可以根據觀察到的其他 data-tag 添加更多類型
                 }
                 # 如果找不到映射，則歸類為 other_posts
@@ -1287,57 +1286,33 @@ class PatreonScraperRefactored:
             post_types_data = {}
             post_years_data = {}
             post_tiers_data = self.get_post_tiers() # Tier 數據
-            social_values_data = self.get_social_values() # 點讚和留言
-            has_chat_tab = self.check_chat_tab_exists() #檢查是不是有聊天室
-            chat_details = self.get_chat_room_details()
-            free_chat_count = chat_details.get('free_chat_count', 0)
-            paid_chat_count = chat_details.get('paid_chat_count', 0)
-            has_chat_tab = 'yes' if (free_chat_count > 0 or paid_chat_count > 0) else 'no'
 
-            about_word_count = self.get_about_section_word_count()
-
-            print("檢查是否存在新的懸浮篩選視窗觸發按鈕...")
-            # 嘗試尋找新結構的按鈕，設置一個短一點的超時時間
-            new_structure_button = self._find_element(self.SELECTORS["filter_dialog_toggle_button"], timeout=3)
 
             # --- 步驟 2: 根據是否找到新按鈕來判斷走哪條路 ---
-            if new_structure_button:
-                # --- 走【新結構】這條路 ---
-                print("檢測到新的懸浮篩選視窗結構。")
+            print("檢查是否存在新的懸浮篩選視窗觸發按鈕...")
+            new_structure_button = self._find_element(self.SELECTORS["filter_dialog_toggle_button"], timeout=3)
 
-                # 點擊按鈕打開懸浮視窗
+            if new_structure_button: # --- 分支 A：檢測到新結構的 *按鈕* ---
+                print("檢測到新的懸浮篩選視窗按鈕。") # 日誌訊息可以更精確
+
                 print("嘗試點擊觸發按鈕打開懸浮視窗...")
-                if self._click_element(self.SELECTORS["filter_dialog_toggle_button"], timeout=3):
-                    print("成功點擊觸發按鈕。等待懸浮視窗出現...")
-
-                    # 等待懸浮視窗容器出現
+                if self._click_element(self.SELECTORS["filter_dialog_toggle_button"], timeout=3): # --- 分支 A.1：成功點擊按鈕 ---
+                    print("成功點擊新結構觸發按鈕。等待懸浮視窗出現...")
                     dialog_container = self._find_element(self.SELECTORS["filter_dialog_container"], timeout=3)
-                    if dialog_container:
+                    if dialog_container: # --- 分支 A.1.1：成功找到懸浮視窗容器 ---
                         print("懸浮視窗已出現。調用輔助方法解析數據...")
-                        # *** 呼叫我們精簡後的 _parse_filter_dialog 方法 ***
-                        # 這個方法只會從 dialog_container 裡面找 Type 和 Year 的資訊
                         all_filter_data_from_dialog = self._parse_filter_dialog(dialog_container)
-
-                        # 將從視窗中解析到的數據賦值給對應的變數
                         post_types_data = all_filter_data_from_dialog.get('post_type_dict', {})
                         post_years_data = all_filter_data_from_dialog.get('post_year_dict', {})
-                        # 因為你說只需要 Type 和 Year，所以 Podcast 和 Tier 從這裡獲取的部分就不需要了
-                        # 如果舊結構有這些數據，確保在 else 分支有處理
-                        # podcast_options_data = all_filter_data_from_dialog.get('podcast_options', {}) # 這行移除或註解
-                        # post_tiers_data = all_filter_data_from_dialog.get('post_tier_dict', {}) # 這行移除或註解
-
-
+                        
                         print("懸浮視窗數據解析完成。嘗試關閉視窗...")
-                        # *** 添加關閉懸浮視窗的邏輯 (點擊 body 或按 ESC) ***
+                        # (保留您關閉懸浮視窗的邏輯)
                         try:
-                            # (這裡放入你之前提供的關閉視窗程式碼)
-                            # 點擊 body 的空白區域
                             body_element = self._find_element((By.TAG_NAME, 'body'))
                             if body_element:
                                 webdriver.ActionChains(self.driver).move_to_element(body_element).click().perform()
                                 print("通過點擊 body 嘗試關閉視窗。")
-                                time.sleep(0.5) # 短暫等待
-                                # 或者更穩妥地等待視窗消失
+                                time.sleep(0.5)
                                 try:
                                     WebDriverWait(self.driver, 5).until(
                                         EC.invisibility_of_element_located(self.SELECTORS["filter_dialog_container"])
@@ -1345,44 +1320,33 @@ class PatreonScraperRefactored:
                                     print("懸浮視窗已關閉。")
                                 except TimeoutException:
                                     print("警告: 無法確認懸浮視窗是否已關閉 (等待消失超時)。")
-                                    # 備用：發送 ESC 鍵
                                     try: webdriver.ActionChains(self.driver).send_keys(Keys.ESCAPE).perform(); print("嘗試發送 ESC 關閉。")
                                     except: pass
                                 except Exception as close_e:
                                     print(f"等待或確認關閉視窗時出錯: {close_e}")
-
                         except Exception as close_error:
                             print(f"關閉懸浮視窗時出錯: {close_error}")
-                            # 作為備用，發送 ESC 鍵
                             try: webdriver.ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
                             except: pass
-
-
-                    else:
-                        print("未能找到懸浮視窗容器，無法提取篩選數據。")
-                        # 如果連視窗都沒出來，這些數據就維持初始化時的空字典
-                        post_types_data = {}
-                        post_years_data = {}
-
-                else:
-                    # --- 走【舊結構】這條路 ---
-                    print("未檢測到新的懸浮篩選視窗結構，使用原有邏輯處理各項篩選數據。")
-
-                    # *** 呼叫你原有的、已經修改為只處理舊結構的方法 ***
-                    # 注意：這裡呼叫的是你原有的方法，這些方法應該只負責從舊的 HTML 結構中抓取數據
-                    try:
-                        # ！！！ 保留對你原有的 get_post_types() 的呼叫 ！！！
-                        post_types_data = self.get_post_types()
-                    except Exception as e:
-                        print(f"舊結構 get_post_types 失敗: {e}")
-                        post_types_data = {} # 如果舊結構方法失敗，也設為空字典
-
-                    try:
-                        # ！！！ 保留對你原有的 get_post_years() 的呼叫 ！！！
-                        post_years_data = self.get_post_years()
-                    except Exception as e:
-                        print(f"舊結構 get_post_years 失敗: {e}")
-                        post_years_data = {} # 如果舊結構方法失敗，也設為空字典
+                    else: # --- 分支 A.1.2：點擊成功，但未找到懸浮視窗容器 ---
+                        print("已點擊新結構按鈕，但未能找到懸浮視窗容器。篩選數據將為空。")
+                        # post_types_data 和 post_years_data 已在上面初始化為 {}
+                else: # --- 分支 A.2：點擊新結構的按鈕失敗 ---
+                    print("點擊新的懸浮篩選視窗觸發按鈕失敗。篩選數據將為空。")
+                    # post_types_data 和 post_years_data 已在上面初始化為 {}
+            else: # --- 分支 B：未檢測到新結構的 *按鈕* (new_structure_button is None) ---
+                  # --- 這才是執行舊結構邏輯的地方 ---
+                print("未檢測到新的懸浮篩選視窗按鈕，使用原有邏輯處理篩選數據。") # 這裡的日誌才正確
+                try:
+                    post_types_data = self.get_post_types()
+                except Exception as e:
+                    print(f"舊結構 get_post_types 失敗: {e}")
+                    post_types_data = {}
+                try:
+                    post_years_data = self.get_post_years()
+                except Exception as e:
+                    print(f"舊結構 get_post_years 失敗: {e}")
+                    post_years_data = {}
 
                     # 在這個舊結構的分支下，如果你原有的程式碼會從別處獲取 Podcast 或 Tier 的過濾數據，
                     # 可以在這裡呼叫對應的方法並賦值給 podcast_options_data 和 post_tiers_data
@@ -1405,7 +1369,14 @@ class PatreonScraperRefactored:
             all_a_tags = self.driver.find_elements(By.TAG_NAME, "a")
             external_links_count = 0
             #processed_hrefs_for_total = set()
-           
+
+            social_values_data = self.get_social_values() # 點讚和留言
+            has_chat_tab = self.check_chat_tab_exists() #檢查是不是有聊天室
+            chat_details = self.get_chat_room_details()
+            free_chat_count = chat_details.get('free_chat_count', 0)
+            paid_chat_count = chat_details.get('paid_chat_count', 0)
+            has_chat_tab = 'yes' if (free_chat_count > 0 or paid_chat_count > 0) else 'no'            
+            about_word_count = self.get_about_section_word_count()
 
             for link_element in all_a_tags:
                 try:
@@ -1676,7 +1647,7 @@ if __name__ == "__main__":
         except ValueError:
             print("警告：提供的參數不是有效的數字，將處理所有 URL。")
 
-    url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") 
+    url_file = os.path.join(os.path.dirname(__file__), "test_for_terminal.txt") 
     
 
     output_directory = os.path.join(os.path.dirname(__file__), "Patreon_Scraped_Data") 
