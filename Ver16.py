@@ -95,8 +95,11 @@ class PatreonScraperRefactored:
         "age_verification_button": (By.XPATH, "//button[@data-tag='age-verification-button-yes']"), # 示例
 
         # "關於"頁面
-        "about_link": (By.XPATH, "//li/a[substring(@href, string-length(@href) - string-length('/about?') + 1) = '/about?' and (normalize-space(.)='About' or normalize-space(.)='關於')]"),
-        "about_content_container": (By.XPATH, "//div[@data-tag='about-contents']"),
+        "about_link": (By.XPATH, "//li/a[contains(@href, '/about') and (normalize-space(.)='About' or normalize-space(.)='關於')]"),
+        "about_content_container": (By.XPATH, "//div[@data-tag='about-contents']"), # 用於字數統計
+        "about_total_members_container": (By.XPATH, "//div[@data-tag='member-count']"),
+        "about_paid_members_container": (By.XPATH, "//div[@data-tag='paid-member-count']"),
+        "number_in_member_container": (By.XPATH, ".//div[not(*)] | .//span[not(*)]"), # 查找沒有子標籤的 div 或 span
 
         "monthly_income_element": (By.XPATH, "//span[@data-tag='earnings-count']"),
         #單個貼文容器
@@ -126,7 +129,6 @@ class PatreonScraperRefactored:
         "filter_post_type_buttons_container": (By.XPATH, ".//div[@class='sc-584c8d1b-1 TMlJM']"), # 根據您提供的 HTML
         "filter_year_options_container": (By.XPATH, ".//div[@aria-label='Date Filter' and @role='radiogroup']"), # 根據 aria-label 和 role
         "filter_year_item_radio": (By.XPATH, ".//div[@role='radio']"),
-
 
     }
 
@@ -293,14 +295,15 @@ class PatreonScraperRefactored:
 
         except Exception as e:
             print(f"  獲取 Patron Count 時出錯: {e}")
+            static_data['patron_count'] = 0
 
         print("  嘗試獲取月收入...")
         income_element = self._find_element(self.SELECTORS["monthly_income_element"], timeout=2)
         if income_element:
             income_text = income_element.text.strip()
-            income_value = parse_number(income_text) # 使用輔助函數解析
+            income_value = parse_number(income_text)
             if income_value is not None:
-                static_data['income_per_month'] = parse_number(income_text) or 0
+                static_data['income_per_month'] = income_value
                 print(f"  找到 Monthly Income: {static_data['income_per_month']} (來自文本: {income_text})")
             else:
                 print(f"  找到月收入元素，但無法從文本 '{income_text}' 解析數字。")
@@ -313,86 +316,43 @@ class PatreonScraperRefactored:
         try:
             post_label_element = self._find_element(self.SELECTORS["total_posts"])
             if post_label_element:
-                parent = post_label_element.find_element(By.XPATH, "..")
+                parent = None
+                try:
+                    parent = post_label_element.find_element(By.XPATH, "..")
+                except NoSuchElementException:
+                    pass
+
                 number_text = ""
-                possible_spans = parent.find_elements(By.TAG_NAME, "span")
-                if not possible_spans:
-                    parent_li = post_label_element.find_element(By.XPATH, "./ancestor::li")
-                    possible_spans = parent_li.find_elements(By.TAG_NAME, "span")
-                for span in possible_spans:
-                     if span.text and span.text.strip() and any(char.isdigit() for char in span.text):
-                          number_text = span.text.strip()
-                          break
+                if post_label_element.text and any(char.isdigit() for char in post_label_element.text):
+                    number_text = post_label_element.text.strip()
+                elif parent:
+                    possible_spans = parent.find_elements(By.TAG_NAME, "span")
+                    if not possible_spans:
+                        try:
+                            parent_li = post_label_element.find_element(By.XPATH, "./ancestor::li")
+                            possible_spans = parent_li.find_elements(By.TAG_NAME, "span")
+                        except NoSuchElementException:
+                            pass
+                    
+                    for span in possible_spans:
+                         if span.text and span.text.strip() and any(char.isdigit() for char in span.text):
+                              number_text = span.text.strip()
+                              break
+                
                 if number_text:
-                     static_data['total_posts'] = parse_number(number_text) or 0
+                     parsed_val = parse_number(number_text)
+                     static_data['total_posts'] = int(parsed_val) if parsed_val is not None else 0
                      print(f"  找到 Total Posts: {static_data['total_posts']} (來自文本: {number_text})")
                 else:
                      print(f"  找到 Post 標籤，但未能提取數字。")
-
+            else:
+                print(f"  未找到 Total Posts 元素。")
         except Exception as e:
             print(f"  獲取 Total Posts 時出錯: {e}")
 
+        print(f"靜態內容獲取完畢: {static_data}")
         return static_data
 
-    def get_about_section_word_count(self) -> int:
-        """
-        嘗試點擊 '關於' 標籤頁，並計算其內容區域的字數 (Word Count)。
-
-        Returns:
-            int: '關於' 區域的字數。如果無法找到或處理，則返回 0。
-                 注意: 目前計算的是以空格分隔的單詞數。
-                       如果需要計算總字符數，請使用 len(about_text)。
-        """
-        print("嘗試獲取 '關於' 區域的字數...")
-        about_word_count = 0
-        about_link_selector = self.SELECTORS["about_link"]
-        content_container_selector = self.SELECTORS["about_content_container"]
-
-        # --- 步驟 1: 找到並點擊 '關於' 連結/標籤頁 ---
-        print(f"查找 '關於' 連結: {about_link_selector}")
-        # 注意：這裡假設點擊 '關於' 是安全的，不會導致後續爬取狀態混亂
-        # 如果點擊會改變 URL 或頁面狀態，可能需要更複雜的處理 (例如爬完後導航回去)
-        if not self._click_element(about_link_selector, timeout=10):
-            print("未能找到或點擊 '關於' 連結/標籤頁，無法計算字數。")
-            return 0 # 點擊失敗，返回 0
-
-        # --- 步驟 2: 等待 '關於' 內容容器出現 ---
-        print(f"等待 '關於' 內容容器加載: {content_container_selector}")
-        # 增加等待時間，因為內容可能是動態加載的
-        content_container = self._find_element(content_container_selector, timeout = 10)
-
-        if content_container is None:
-            print("未能找到 '關於' 內容容器，無法計算字數。")
-            # 嘗試導航離開或點擊其他地方，避免停留在未完全加載的狀態？ (可選)
-            return 0
-
-        # --- 步驟 3: 提取文本並計算字數 ---
-        try:
-            print("提取 '關於' 區域文本...")
-            about_text = content_container.text
-            if about_text:
-                # 計算字數 (以空格分隔)
-                words = about_text.strip().split()
-                about_word_count = len(words)
-                print(f"'關於' 區域字數 (Word Count): {about_word_count}")
-                # 如果需要字符數：
-                # about_char_count = len(about_text.strip())
-                # print(f"'關於' 區域字符數 (Character Count): {about_char_count}")
-            else:
-                print("'關於' 區域文本為空。")
-
-        except StaleElementReferenceException:
-            print("'關於' 內容容器元素已過時，無法提取文本。")
-            return 0 # 或者返回上一次成功獲取的值？暫定返回 0
-        except Exception as e:
-            print(f"提取或計算 '關於' 區域字數時出錯: {e}")
-            return 0
-
-        # --- 步驟 4: (可選) 操作完成後，是否需要點擊返回或做其他操作以恢復頁面狀態？
-        # print("處理完 '關於' 區域。")
-        # 例如，點擊回到主要 Posts 標籤頁？這取決於網站行為和後續爬取需求
-
-        return about_word_count
 
     def check_chat_tab_exists(self) -> bool:
         """
@@ -1248,218 +1208,300 @@ class PatreonScraperRefactored:
         social_platforms['social_link_count'] = social_link_count
         print(f"社群連結處理完成: {social_platforms}")
         return social_platforms
+    
+
+    def _extract_number_from_member_container(self, container_element: Optional[webdriver.remote.webelement.WebElement]) -> Optional[int]:
+        """
+        輔助函數：從給定的 Selenium 會員數容器元素中提取數字。
+        它會在容器內查找不含子標籤的 div 或 span，並解析其文本。
+        """
+        if not container_element:
+            return None
+        
+        # 使用 SELECTORS["number_in_member_container"]
+        # 這個選擇器是相對的 (以 .// 開頭)，所以會在 container_element 內部查找
+        number_elements = self._find_elements(self.SELECTORS["number_in_member_container"], parent=container_element)
+
+        for el in number_elements:
+            try:
+                text_content = el.text.strip()
+                if text_content: # 確保文本不為空
+                    cleaned_number_str = text_content.replace(',', '') # 移除千分位逗號
+                    if cleaned_number_str.isdigit(): # 確保清理後是純數字
+                        count = int(cleaned_number_str)
+                        if count >= 0: # 基本的合理性檢查
+                            return count
+                    # else: # 可選調試:
+                    #     print(f"    提取數字時，文本 '{text_content}' 清理後非純數字: '{cleaned_number_str}'")
+            except StaleElementReferenceException:
+                print("    提取數字時元素過時，將嘗試下一個。")
+                continue
+            except Exception as e:
+                # 為了避免過多不必要的打印，只在真的出錯時打印
+                # print(f"    解析數字 '{text_content}' 時出錯: {e}")
+                pass # 忽略解析單個元素文本時的錯誤，繼續嘗試其他元素
+        
+        # 如果遍歷完所有找到的 number_elements 都沒有成功返回數字
+        # print(f"    在容器元素內未找到可解析的數字。容器 data-tag: {container_element.get_attribute('data-tag')}")
+        return None
+    
+    def _get_combined_about_page_data(self) -> Dict[str, Any]:
+        """
+        統一處理 '關於' 頁面數據，提取會員數和字數統計。
+        執行完畢後會導航回原始頁面。
+        """
+        print("統一處理 '關於' 頁面數據 (會員數與字數)...")
+        about_data = {
+            'about_total_members': None,
+            'about_paid_members': None,
+            'about_word_count': 0  # 默認為0
+        }
+        original_url = self.driver.current_url # 記錄進入前的 URL
+
+        # --- 步驟 1: 導航到 About 頁面 ---
+        self.driver.execute_script("window.scrollTo(0, 0);") # 確保 'About' 連結可見
+        time.sleep(0.5)
+        if not self._click_element(self.SELECTORS["about_link"], timeout=10):
+            print("  未能點擊 '關於' 連結，無法獲取 About 頁數據。")
+            return about_data # 如果無法進入 About 頁，直接返回默認數據
+
+        print("  已進入 '關於' 頁面，等待內容加載...")
+
+        # --- 步驟 2: 等待 About 頁面關鍵元素加載 ---
+        # 等待會員數容器或字數內容容器之一出現
+        try:
+            WebDriverWait(self.driver, 15).until(
+                EC.any_of(
+                    EC.presence_of_element_located(self.SELECTORS["about_total_members_container"]),
+                    EC.presence_of_element_located(self.SELECTORS["about_paid_members_container"]),
+                    EC.presence_of_element_located(self.SELECTORS["about_content_container"])
+                )
+            )
+            print("  '關於' 頁面關鍵元素已初步加載。")
+        except TimeoutException:
+            print("  等待 '關於' 頁面關鍵元素超時。")
+            # 嘗試導航回原始 URL (如果 URL 已改變)
+            if self.driver.current_url != original_url and "/about" in self.driver.current_url.lower():
+                print(f"  由於 About 頁加載問題，嘗試導航回原始 URL: {original_url}")
+                self.driver.get(original_url)
+                try: # 快速檢查是否成功返回
+                    WebDriverWait(self.driver, 10).until(EC.presence_of_element_located(self.SELECTORS["creator_name"]))
+                except TimeoutException: print("  警告: 導航回原始頁面後，關鍵元素未加載。")
+            return about_data # 返回默認數據
+
+        # --- 步驟 3: 提取會員數 ---
+        # 提取總會員數
+        total_members_container_el = self._find_element(self.SELECTORS["about_total_members_container"], timeout=3) # 縮短超時
+        if total_members_container_el:
+            count = self._extract_number_from_member_container(total_members_container_el)
+            if count is not None:
+                about_data['about_total_members'] = count
+                print(f"      提取到總會員數 (Total Members): {count}")
+
+        # 提取付費會員數
+        paid_members_container_el = self._find_element(self.SELECTORS["about_paid_members_container"], timeout=3) # 縮短超時
+        if paid_members_container_el:
+            count = self._extract_number_from_member_container(paid_members_container_el)
+            if count is not None:
+                about_data['about_paid_members'] = count
+                print(f"      提取到付費會員數 (Paid Members): {count}")
+        
+        # --- 步驟 4: 提取字數統計 ---
+        content_container_for_words = self._find_element(self.SELECTORS["about_content_container"], timeout=5)
+        if content_container_for_words:
+            try:
+                about_text = content_container_for_words.text
+                if about_text:
+                    words = about_text.strip().split()
+                    about_data['about_word_count'] = len(words)
+                    print(f"      '關於' 區域字數 (Word Count): {about_data['about_word_count']}")
+                # else: print("      '關於' 區域文本為空 (用於字數統計)。") # 可選調試
+            except StaleElementReferenceException:
+                print("      '關於' 內容容器元素已過時 (用於字數統計)。")
+            except Exception as e:
+                print(f"      提取 '關於' 區域字數時出錯: {e}")
+        # else: print("      未能找到 '關於' 內容容器 (用於字數統計)。") # 可選調試
+        
+        # --- 步驟 5: 導航回原始 URL ---
+        current_page_url = self.driver.current_url
+        if current_page_url != original_url and "/about" in current_page_url.lower(): # 確保我們真的在 about 頁
+            print(f"  處理完 '關於' 頁面，嘗試導航回原始 URL: {original_url}")
+            self.driver.get(original_url)
+            try:
+                WebDriverWait(self.driver, 15).until(EC.presence_of_element_located(self.SELECTORS["creator_name"]))
+                print("  已成功導航回原始頁面。")
+            except TimeoutException:
+                print("  警告：導航回原始頁面後，關鍵元素未重新加載。後續爬取可能受影響。")
+        # else: # 可選調試
+            # if "/about" not in current_page_url.lower() and current_page_url != original_url :
+            #      print(f"  當前 URL ({current_page_url}) 與原始 URL ({original_url}) 不同，但不在 About 頁，可能無需導航。")
+            # else: print("  當前 URL 未改變或仍在原始頁面，無需導航返回。")
+
+        return about_data
+
 
     def scrape_url(self, url: str) -> Optional[Dict[str, Any]]:
         """
         爬取單個 URL 的所有內容。
-
-        Args:
-            url (str): 要爬取的 Patreon 創作者頁面 URL。
-
-        Returns:
-            包含爬取數據的字典，如果發生嚴重錯誤則返回 None。
+        如果決定跳過，則返回 None。
         """
         print(f"\n--- 開始爬取 URL: {url} ---")
         try:
             self.driver.get(url)
-            # 等待頁面加載標誌，例如創作者名稱
             print("等待頁面加載...")
-            if not self._find_element(self.SELECTORS["creator_name"], timeout=20): # 增加頁面加載等待時間
-                 print("頁面關鍵元素加載超時，可能 URL 無效或頁面結構改變。")
-                 return None # 無法加載關鍵信息，跳過此 URL
-            print("頁面初步加載完成。")
+            creator_name_element = self._find_element(self.SELECTORS["creator_name"], timeout=20) # 先獲取元素
+            if not creator_name_element:
+                 print(f"頁面關鍵元素 (creator_name) 加載超時或未找到。URL: {url} 可能無效或頁面結構改變。跳過此 URL。")
+                 # >>> 修改點：直接返回 None <<<
+                 return None 
+            
+            creator_name_text = creator_name_element.text.strip() # 在確認元素存在後再獲取文本
+            print(f"頁面初步加載完成。Creator Name: {creator_name_text}")
+
 
             self.handle_age_verification()
-
-            # 滾動到頂部，確保後續操作的基準點一致
             self.driver.execute_script("window.scrollTo(0, 0);")
-            try: time.sleep(0.5) # 等待滾動生效
-            except: pass
+            time.sleep(0.5)
 
-            # --- 依次獲取各部分數據 ---
             static_data = self.get_static_content()
-            print(f"\nDEBUG: static_data received in scrape_url:")
-            import pprint
-            pprint.pprint(static_data)
+            # 在 get_static_content 之後，static_data['creator_name'] 應該已經被賦值 (如果成功)
+            # 所以我們可以從 static_data 中獲取 creator_name 用於日誌
+            
+            initial_patron_count = static_data.get('patron_count', 0)
+            if initial_patron_count is None or initial_patron_count == 0:
+                # >>> 修改點：在返回 None 前打印原因 <<<
+                print(f"  主頁初步 Patron Count 為 {initial_patron_count}。URL: {url}, Creator: {static_data.get('creator_name', 'N/A')}。跳過詳細爬取。")
+                # >>> 修改點：直接返回 None <<<
+                return None
+            
+            print(f"  主頁初步 Patron Count 為 {initial_patron_count} (Creator: {static_data.get('creator_name', 'N/A')})，繼續詳細爬取...")
+            
+            # ... (後續的詳細爬取邏輯保持不變，如 combined_about_data = self._get_combined_about_page_data() 等) ...
+            
+            # (組合 result 字典的邏輯保持不變)
+            # ...
+            # result = { ... }
+            # ...
+
+            # print(f"--- URL: {url} 爬取完成 ---") # 這行可以移到 try 塊的末尾，成功返回 result 前
+            # return result # 成功時返回包含數據的字典
+
+        # except Exception as e: # 捕獲所有其他未預期錯誤
+        #     print(f"爬取 URL {url} 時發生嚴重錯誤: {e}")
+        #     import traceback
+        #     traceback.print_exc()
+        #     # >>> 修改點：嚴重錯誤也返回 None <<<
+        #     return None
+
+        # --- 將成功返回和錯誤處理放在 try 塊的末尾 ---
+            combined_about_data = self._get_combined_about_page_data()
             social_links_data = self.get_social_links()
             membership_tiers_data = self.get_membership_tiers()
             post_types_data = {}
             post_years_data = {}
-            post_tiers_data = self.get_post_tiers() # Tier 數據
-
-
-            # --- 步驟 2: 根據是否找到新按鈕來判斷走哪條路 ---
+            post_tiers_data = self.get_post_tiers()
+            
             print("檢查是否存在新的懸浮篩選視窗觸發按鈕...")
             new_structure_button = self._find_element(self.SELECTORS["filter_dialog_toggle_button"], timeout=3)
-
-            if new_structure_button: # --- 分支 A：檢測到新結構的 *按鈕* ---
-                print("檢測到新的懸浮篩選視窗按鈕。") # 日誌訊息可以更精確
-
-                print("嘗試點擊觸發按鈕打開懸浮視窗...")
-                if self._click_element(self.SELECTORS["filter_dialog_toggle_button"], timeout=3): # --- 分支 A.1：成功點擊按鈕 ---
-                    print("成功點擊新結構觸發按鈕。等待懸浮視窗出現...")
+            if new_structure_button:
+                print("檢測到新的懸浮篩選視窗按鈕。")
+                if self._click_element(self.SELECTORS["filter_dialog_toggle_button"], timeout=3):
                     dialog_container = self._find_element(self.SELECTORS["filter_dialog_container"], timeout=3)
-                    if dialog_container: # --- 分支 A.1.1：成功找到懸浮視窗容器 ---
-                        print("懸浮視窗已出現。調用輔助方法解析數據...")
+                    if dialog_container:
                         all_filter_data_from_dialog = self._parse_filter_dialog(dialog_container)
                         post_types_data = all_filter_data_from_dialog.get('post_type_dict', {})
                         post_years_data = all_filter_data_from_dialog.get('post_year_dict', {})
-                        
-                        print("懸浮視窗數據解析完成。嘗試關閉視窗...")
-                        # (保留您關閉懸浮視窗的邏輯)
-                        try:
+                        try: 
                             body_element = self._find_element((By.TAG_NAME, 'body'))
-                            if body_element:
-                                webdriver.ActionChains(self.driver).move_to_element(body_element).click().perform()
-                                print("通過點擊 body 嘗試關閉視窗。")
-                                time.sleep(0.5)
-                                try:
-                                    WebDriverWait(self.driver, 5).until(
-                                        EC.invisibility_of_element_located(self.SELECTORS["filter_dialog_container"])
-                                    )
-                                    print("懸浮視窗已關閉。")
-                                except TimeoutException:
-                                    print("警告: 無法確認懸浮視窗是否已關閉 (等待消失超時)。")
-                                    try: webdriver.ActionChains(self.driver).send_keys(Keys.ESCAPE).perform(); print("嘗試發送 ESC 關閉。")
-                                    except: pass
-                                except Exception as close_e:
-                                    print(f"等待或確認關閉視窗時出錯: {close_e}")
-                        except Exception as close_error:
-                            print(f"關閉懸浮視窗時出錯: {close_error}")
+                            if body_element: webdriver.ActionChains(self.driver).move_to_element(body_element).click().perform()
+                            WebDriverWait(self.driver, 5).until(EC.invisibility_of_element_located(self.SELECTORS["filter_dialog_container"]))
+                        except: 
                             try: webdriver.ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
                             except: pass
-                    else: # --- 分支 A.1.2：點擊成功，但未找到懸浮視窗容器 ---
-                        print("已點擊新結構按鈕，但未能找到懸浮視窗容器。篩選數據將為空。")
-                        # post_types_data 和 post_years_data 已在上面初始化為 {}
-                else: # --- 分支 A.2：點擊新結構的按鈕失敗 ---
-                    print("點擊新的懸浮篩選視窗觸發按鈕失敗。篩選數據將為空。")
-                    # post_types_data 和 post_years_data 已在上面初始化為 {}
-            else: # --- 分支 B：未檢測到新結構的 *按鈕* (new_structure_button is None) ---
-                  # --- 這才是執行舊結構邏輯的地方 ---
-                print("未檢測到新的懸浮篩選視窗按鈕，使用原有邏輯處理篩選數據。") # 這裡的日誌才正確
-                try:
-                    post_types_data = self.get_post_types()
-                except Exception as e:
-                    print(f"舊結構 get_post_types 失敗: {e}")
-                    post_types_data = {}
-                try:
-                    post_years_data = self.get_post_years()
-                except Exception as e:
-                    print(f"舊結構 get_post_years 失敗: {e}")
-                    post_years_data = {}
+                    else: print("未能找到懸浮視窗容器。")
+                else: print("點擊新的懸浮篩選視窗觸發按鈕失敗。")
+            else:
+                print("未檢測到新的懸浮篩選視窗按鈕，使用原有邏輯處理篩選數據。")
+                try: post_types_data = self.get_post_types()
+                except Exception as e: print(f"舊結構 get_post_types 失敗: {e}"); post_types_data = {}
+                try: post_years_data = self.get_post_years()
+                except Exception as e: print(f"舊結構 get_post_years 失敗: {e}"); post_years_data = {}
 
-                    # 在這個舊結構的分支下，如果你原有的程式碼會從別處獲取 Podcast 或 Tier 的過濾數據，
-                    # 可以在這裡呼叫對應的方法並賦值給 podcast_options_data 和 post_tiers_data
-                    # 如果舊結構沒有這些數據，或者你不需要，這裡就保持初始化時的空字典 {}
-                    # 例如：
-                    # try:
-                    #     podcast_options_data = self.get_old_structure_podcast_data() # 假設你有這樣一個方法
-                    # except:
-                    #     podcast_options_data = {}
-                    # try:
-                    #      post_tiers_data = self.get_old_structure_tier_data() # 假設你有這樣一個方法
-                    # except:
-                    #      post_tiers_data = {}
-            
-
-            # --- 這裡結束處理需要判斷結構的篩選數據 ---
-
-             # 計算總連結數 (如果需要)
-            print("正在計算頁面外部連結數...")
-            all_a_tags = self.driver.find_elements(By.TAG_NAME, "a")
-            external_links_count = 0
-            #processed_hrefs_for_total = set()
-
-            social_values_data = self.get_social_values() # 點讚和留言
-            has_chat_tab = self.check_chat_tab_exists() #檢查是不是有聊天室
+            social_values_data = self.get_social_values()
             chat_details = self.get_chat_room_details()
             free_chat_count = chat_details.get('free_chat_count', 0)
             paid_chat_count = chat_details.get('paid_chat_count', 0)
-            has_chat_tab = 'yes' if (free_chat_count > 0 or paid_chat_count > 0) else 'no'            
-            about_word_count = self.get_about_section_word_count()
+            has_chat_tab_str = 'yes' if (free_chat_count > 0 or paid_chat_count > 0) else 'no'
+            about_word_count = combined_about_data.get('about_word_count', 0)
 
+            current_url_lower = self.driver.current_url.lower()
+            # 檢查是否需要導航回主頁面 (url)
+            if self.driver.current_url != url and ("/about" in current_url_lower or "/chats" in current_url_lower or "/tiers" in current_url_lower): # 增加了 /tiers
+                print(f"當前在 {self.driver.current_url}，導航回主頁 ({url}) 以計算總連結...")
+                self.driver.get(url) 
+                try:
+                    WebDriverWait(self.driver, 10).until(EC.presence_of_element_located(self.SELECTORS["creator_name"]))
+                except TimeoutException:
+                    print(f"警告: 導航回主頁 ({url}) 後 creator_name 未加載。")
+
+
+            print("正在計算頁面外部連結數...")
+            all_a_tags = self._find_elements((By.TAG_NAME, "a"))
+            external_links_count = 0
             for link_element in all_a_tags:
                 try:
                     href = link_element.get_attribute('href')
-                    # 關鍵過濾條件
                     if href and href.strip() and not href.startswith("#") and not href.startswith("https://www.patreon.com/"):
                         external_links_count += 1
-                        # # 如果需要去重計數域名，取消註解以下部分
-                        # from urllib.parse import urlparse # 需要導入
-                        # parsed_uri = urlparse(href)
-                        # domain = f"{parsed_uri.scheme}://{parsed_uri.netloc}"
-                        # if domain not in processed_hrefs_for_total:
-                        #     external_links_count += 1
-                        #     processed_hrefs_for_total.add(domain)
-                except StaleElementReferenceException:
-                    continue
-                except Exception as e:
-                    print(f"處理連結標籤時出錯: {e}")
-                    continue
-
+                except StaleElementReferenceException: continue
+                except Exception as e: print(f"處理連結標籤時出錯: {e}"); continue
             total_links = external_links_count
             print(f"頁面外部連結數: {total_links}")
-
-            # --- 組合最終結果 ---
+            
+            final_patron_number = combined_about_data.get('about_paid_members')
+            if final_patron_number is None:
+                final_patron_number = combined_about_data.get('about_total_members')
+            if final_patron_number is None: # 如果 About 頁的都沒取到，使用主頁的 initial_patron_count
+                final_patron_number = initial_patron_count 
+            
             result = {
                 'URL': url,
-                'creator_name': static_data.get('creator_name', ''),
+                'creator_name': static_data.get('creator_name', ''), # static_data['creator_name'] 應已由 creator_name_text 賦值
                 'total_post': static_data.get('total_posts', 0),
-                'patreon_number': static_data.get('patron_count', 0),
-                
-                'income_per_month': static_data.get('income_per_month', 0), # 通常難以獲取
-
-                # 字典數據源 (用於後續處理)
+                'patreon_number': final_patron_number if final_patron_number is not None else 0,
+                'about_total_members': combined_about_data.get('about_total_members'),
+                'about_paid_members': combined_about_data.get('about_paid_members'),
+                'about_word_count': about_word_count,
+                'income_per_month': static_data.get('income_per_month', 0),
                 'tier_post_dict': post_tiers_data,
                 'post_year_dict': post_years_data,
                 'post_type_dict': post_types_data,
                 'social_links_dict': social_links_data,
-
-                # 計數數據
                 'tier_count': len(post_tiers_data),
                 'total_links': total_links,
                 'social_link_count': social_links_data.get('social_link_count', 0),
-
-                'about_word_count': about_word_count,
-
-                # 區分後的按讚和留言數
                 'public_likes': social_values_data.get('public_likes', 0),
                 'public_comments': social_values_data.get('public_comments', 0),
                 'locked_likes': social_values_data.get('locked_likes', 0),
                 'locked_comments': social_values_data.get('locked_comments', 0),
-                #紀錄是否有聊天室
-                'has_chat_tab': 'yes' if has_chat_tab else 'no', # 記錄 'yes' 或 'no'
+                'has_chat_tab': has_chat_tab_str,
                 'free_chat_count': free_chat_count,
                 'paid_chat_count': paid_chat_count,
-
                 'membership_tiers': membership_tiers_data,
-                'tier_count': len(post_tiers_data),
-                'membership_tier_count': len(membership_tiers_data), # 計算會員等級數量
-                'about_word_count': about_word_count,
-    
-            
+                'membership_tier_count': len(membership_tiers_data),
             }
-
             result['total_likes_combined'] = result['public_likes'] + result['locked_likes']
             result['total_comments_combined'] = result['public_comments'] + result['locked_comments']
 
-            print(f"--- URL: {url} 爬取完成 ---")
-            print(f"DEBUG: Final result dict before return: {result}")
-            return result
+            print(f"--- URL: {url} 爬取完成 (成功) ---")
+            return result # 成功完成所有爬取步驟後返回數據字典
 
-        except Exception as e:
-            print(f"爬取 URL {url} 時發生嚴重錯誤: {e}")
+        except Exception as e: # 捕獲在詳細爬取過程中可能發生的任何其他未預期錯誤
+            print(f"爬取 URL {url} 的詳細數據時發生嚴重錯誤: {e}")
             import traceback
-            traceback.print_exc() # 打印詳細錯誤信息
-            return {
-                'URL': url, 'creator_name': '','total_post': 0,'patreon_number': 0, 'income_per_month' : 0, 
-                'tier_post_dict': {}, 'post_year_dict': {}, 'post_type_dict': {}, 'social_links_dict': {'social_link_count': 0},
-                'tier_count': 0, 'total_links': 0,'social_link_count': 0,
-                'about_word_count': 0, 
-                'has_chat_tab': 'no', 'free_chat_count': 0, 'paid_chat_count': 0,
-                'public_likes': 0, 'public_comments': 0, 'locked_likes': 0, 'locked_comments': 0,
-                'total_likes_combined': 0, 'total_comments_combined': 0 
-            }
+            traceback.print_exc()
+            # >>> 修改點：嚴重錯誤也返回 None <<<
+            return None
 
     def _prepare_row_data(self, data: Dict[str, Any], fieldnames: List[str]) -> Dict[str, Any]:
         """
@@ -1479,10 +1521,14 @@ class PatreonScraperRefactored:
                       'tier_count', 'total_links', 'social_link_count','about_word_count',
                       'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
                       'has_chat_tab', 'free_chat_count', 'paid_chat_count', 'membership_tier_count',
+                      'about_total_members', 'about_paid_members'
                       ]:
             if field in fieldnames:
-                default_val = '' if field in ['URL', 'creator_name'] else ('no' if field == 'has_chat_tab' else 0)
-                row_data[field] = data.get(field, default_val)
+                if data.get(field) is None and field in ['about_total_members', 'about_paid_members', 'patreon_number']: # 假設 patreon_number 也可能為 None
+                    row_data[field] = ''
+                else:
+                    default_val = '' if field in ['URL', 'creator_name'] else ('no' if field == 'has_chat_tab' else 0)
+                    row_data[field] = data.get(field, default_val)
 
 
         # 處理字典數據 -> 字串 (按用戶要求)
@@ -1521,6 +1567,7 @@ class PatreonScraperRefactored:
                 elif is_dict_string: row_data[field] = '{}'
                 elif is_social_yes_no: row_data[field] = 'no'
                 elif field in ['URL', 'creator_name']: pass # 通常已處理
+                elif field in ['about_total_members', 'about_paid_members']: row_data[field] = '' # 確保默認為空字符串
                 else: row_data[field] = 0 # 其他 (如文章類型) 默認為 0
 
 
@@ -1555,7 +1602,9 @@ class PatreonScraperRefactored:
 
             'membership_tier_count','membership_tiers_json',
 
-            'about_word_count' # 其他和未知類型
+            'about_word_count',
+            'about_total_members', 
+            'about_paid_members',
         ]
 
         fieldnames = sorted(list(set(fieldnames)), key=lambda x: fieldnames.index(x)) # 去重並保持順序
@@ -1647,7 +1696,7 @@ if __name__ == "__main__":
         except ValueError:
             print("警告：提供的參數不是有效的數字，將處理所有 URL。")
 
-    url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") 
+    url_file = os.path.join(os.path.dirname(__file__), "test_for_terminal.txt") 
     
 
     output_directory = os.path.join(os.path.dirname(__file__), "Patreon_Scraped_Data") 
