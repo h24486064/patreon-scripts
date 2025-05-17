@@ -1696,7 +1696,7 @@ if __name__ == "__main__":
         except ValueError:
             print("警告：提供的參數不是有效的數字，將處理所有 URL。")
 
-    url_file = os.path.join(os.path.dirname(__file__), "test_for_terminal.txt") 
+    url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") 
     
 
     output_directory = os.path.join(os.path.dirname(__file__), "Patreon_Scraped_Data") 
