@@ -126,7 +126,7 @@ class PatreonScraperRefactored:
         "filter_dialog_container": (By.ID, "post-feed-filter-dialog"),
         "filter_section_post_type_title": (By.XPATH, ".//h3[contains(text(), 'Post type')]"),
         "filter_section_date_published_title": (By.XPATH, ".//h3[contains(text(), 'Date published')]"), # 之前叫 year_button 相關
-        "filter_post_type_buttons_container": (By.XPATH, ".//div[@class='sc-584c8d1b-1 TMlJM']"), # 根據您提供的 HTML
+        "filter_post_type_buttons_container": (By.XPATH, ".//div[contains(@class, 'sc-85f1f2b-1') and contains(@class, 'fVjasJ')]"), # 根據您提供的 HTML
         "filter_year_options_container": (By.XPATH, ".//div[@aria-label='Date Filter' and @role='radiogroup']"), # 根據 aria-label 和 role
         "filter_year_item_radio": (By.XPATH, ".//div[@role='radio']"),
 
@@ -594,13 +594,13 @@ class PatreonScraperRefactored:
             print("  解析 Post type...")
             # 找到 Post type 區塊 (根據 H3 文本或 class)
             post_type_section = self._find_element(
-                (By.XPATH, ".//h3[contains(text(), 'Post type')]/ancestor::div[@class='sc-b8681dbb-1 fgNDIe']"),
+                (By.XPATH, ".//h3[contains(text(), 'Post type')]/ancestor::div[contains(@class, 'sc-855f240a-1')]"),
                 parent=dialog_element, timeout=2
             )
             if post_type_section:
                 # 找到 Post type 按鈕列表 (根據 class)
                 type_buttons_container = self._find_element(
-                    (By.XPATH, ".//div[@class='sc-584c8d1b-1 TMlJM']"),
+                    (By.XPATH, ".//div[contains(@class, 'sc-85f1f2b-1') and contains(@class, 'fVjasJ')]"),
                     parent=post_type_section, timeout=1
                 )
                 if type_buttons_container:
@@ -620,7 +620,7 @@ class PatreonScraperRefactored:
             # --- 解析 Date published (Years) ---
             print("  解析 Date published (Years)...")
             years_section = self._find_element(
-                (By.XPATH, ".//h3[contains(text(), 'Date published')]/ancestor::div[@class='sc-b8681dbb-1 fgNDIe']"),
+                (By.XPATH, ".//h3[contains(text(), 'Date published')]/ancestor::div[contains(@class, 'sc-855f240a-1') and contains(@class, 'gPkaHa')]"),
                 parent=dialog_element, timeout=2
             )
             if years_section:
@@ -1696,7 +1696,7 @@ if __name__ == "__main__":
         except ValueError:
             print("警告：提供的參數不是有效的數字，將處理所有 URL。")
 
-    url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") 
+    url_file = os.path.join(os.path.dirname(__file__), "test_for_terminal.txt") 
     
 
     output_directory = os.path.join(os.path.dirname(__file__), "Patreon_Scraped_Data") 
