@@ -1701,7 +1701,7 @@ if __name__ == "__main__":
 
     output_directory = os.path.join(os.path.dirname(__file__), "Patreon_Scraped_Data") 
 
-    run_headless = False   # 是否使用無頭模式 (True 或 False)
+    run_headless = True   # 是否使用無頭模式 (True 或 False)
 
     target_urls = load_urls_from_txt(url_file)
 
