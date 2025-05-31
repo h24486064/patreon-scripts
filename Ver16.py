@@ -149,6 +149,8 @@ class PatreonScraperRefactored:
 
         print("正在初始化 WebDriver...")
         chrome_options = Options()
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        chrome_options.add_argument(f"user-agent={user_agent}")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
@@ -156,6 +158,9 @@ class PatreonScraperRefactored:
         chrome_options.add_argument("--start-maximized") # 嘗試最大化視窗
         chrome_options.add_argument("--disable-infobars")
         chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
         # 設置語言偏好，可能影響頁面文本
         chrome_options.add_experimental_option('prefs', {'intl.accept_languages': 'en,en_US'})
         if headless:
