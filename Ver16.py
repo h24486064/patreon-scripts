@@ -1623,7 +1623,7 @@ class PatreonScraperRefactored:
 
             # 添加隨機延遲，避免請求過於頻繁
             if i < len(urls) - 1: # 最後一個 URL 後不需要等待
-                delay = random.uniform(5, 10) # 增加延遲範圍
+                delay = random.uniform(15, 20) # 增加延遲範圍
                 print(f"等待 {delay:.1f} 秒...")
                 time.sleep(delay)
 
