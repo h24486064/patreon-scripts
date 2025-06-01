@@ -1580,41 +1580,41 @@ class PatreonScraperRefactored:
         return row_data
 
 
-    def scrape_multiple_targets(self, urls: List[str]):
+    def scrape_multiple_targets(self, urls: List[str], fieldnames: List[str]) -> List[Dict[str, Any]]:
         """爬取多個目標 URL 並保存到 CSV"""
         if not urls:
             print("沒有提供 URL，無法爬取。")
-            return
+            return []
 
         # *** 明確定義所有期望的 CSV 欄位 ***
         # 順序可以根據你的偏好調整
-        fieldnames = [
-            # 基本信息
-            'URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
-            # 聚合信息 (字典字串 + 計數)
-            'tier_post_data', 'post_year_count', 'tier_count',
-            'total_links',
-            # 社群連結狀態 + 計數
-            'facebook', 'twitter', 'instagram', 'youtube', 'twitch', 'tiktok', 'discord', 'social_link_count',
-            # 文章類型計數 (展開)
-            'text_posts', 'image_posts', 'video_posts', 'podcast_posts', 'audio_posts',
-            'link_posts', 'poll_posts', 'livestream_posts',
-            'other_posts', 'unknown',
+        # fieldnames = [
+        #     # 基本信息
+        #     'URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
+        #     # 聚合信息 (字典字串 + 計數)
+        #     'tier_post_data', 'post_year_count', 'tier_count',
+        #     'total_links',
+        #     # 社群連結狀態 + 計數
+        #     'facebook', 'twitter', 'instagram', 'youtube', 'twitch', 'tiktok', 'discord', 'social_link_count',
+        #     # 文章類型計數 (展開)
+        #     'text_posts', 'image_posts', 'video_posts', 'podcast_posts', 'audio_posts',
+        #     'link_posts', 'poll_posts', 'livestream_posts',
+        #     'other_posts', 'unknown',
 
-            'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
-            'total_likes_combined', 'total_comments_combined',
+        #     'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
+        #     'total_likes_combined', 'total_comments_combined',
 
-            'free_chat_count', 'paid_chat_count',# 是否有聊天室
+        #     'free_chat_count', 'paid_chat_count',# 是否有聊天室
 
-            'membership_tier_count','membership_tiers_json',
+        #     'membership_tier_count','membership_tiers_json',
 
-            'about_word_count',
-            'about_total_members', 
-            'about_paid_members',
-        ]
+        #     'about_word_count',
+        #     'about_total_members', 
+        #     'about_paid_members',
+        # ]
 
-        fieldnames = sorted(list(set(fieldnames)), key=lambda x: fieldnames.index(x)) # 去重並保持順序
-        print(f"CSV 欄位將是: {fieldnames}")
+        #fieldnames = sorted(list(set(fieldnames)), key=lambda x: fieldnames.index(x)) # 去重並保持順序
+        #print(f"CSV 欄位將是: {fieldnames}")
 
         results_list = [] # 先將結果存儲在列表中
 
@@ -1633,21 +1633,23 @@ class PatreonScraperRefactored:
                 print(f"等待 {delay:.1f} 秒...")
                 time.sleep(delay)
 
-        # --- 所有 URL 處理完畢後，一次性寫入 CSV ---
-        if results_list:
-            print(f"\n準備將 {len(results_list)} 條記錄寫入 CSV: {self.output_path}")
-            try:
-                with open(self.output_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
-                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
-                    writer.writeheader()
-                    writer.writerows(results_list)
-                print("CSV 文件寫入成功！")
-            except IOError as e:
-                 print(f"寫入 CSV 文件時出錯: {e}")
-            except Exception as e:
-                 print(f"寫入 CSV 時發生未知錯誤: {e}")
-        else:
-            print("沒有成功爬取到任何數據，未生成 CSV 文件。")
+        # # --- 所有 URL 處理完畢後，一次性寫入 CSV ---
+        # if results_list:
+        #     print(f"\n準備將 {len(results_list)} 條記錄寫入 CSV: {self.output_path}")
+        #     try:
+        #         with open(self.output_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
+        #             writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
+        #             writer.writeheader()
+        #             writer.writerows(results_list)
+        #         print("CSV 文件寫入成功！")
+        #     except IOError as e:
+        #          print(f"寫入 CSV 文件時出錯: {e}")
+        #     except Exception as e:
+        #          print(f"寫入 CSV 時發生未知錯誤: {e}")
+        # else:
+        #     print("沒有成功爬取到任何數據，未生成 CSV 文件。")
+        print(f"本批次處理完成，共獲得 {len(results_list)} 條記錄。")
+        return results_list
 
 
     def close(self):
@@ -1694,13 +1696,13 @@ if __name__ == "__main__":
     max_urls_to_process = args.max_urls
 
 
-    max_urls_to_process = None
-    if len(sys.argv) > 1:
-        try:
-            max_urls_to_process = int(sys.argv[1])
-            print(f"檢測到參數，將最多處理 {max_urls_to_process} 個 URL。")
-        except ValueError:
-            print("警告：提供的參數不是有效的數字，將處理所有 URL。")
+    # max_urls_to_process = None
+    # if len(sys.argv) > 1:
+    #     try:
+    #         max_urls_to_process = int(sys.argv[1])
+    #         print(f"檢測到參數，將最多處理 {max_urls_to_process} 個 URL。")
+    #     except ValueError:
+    #         print("警告：提供的參數不是有效的數字，將處理所有 URL。")
 
     url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") 
     
@@ -1718,19 +1720,87 @@ if __name__ == "__main__":
     if not target_urls:
         print("未能載入任何 URL，程式結束。")
     else:
-        scraper = None # 初始化為 None
-        try:
-            scraper = PatreonScraperRefactored(output_dir=output_directory, headless=run_headless)
-            print(f"準備開始爬取 {len(target_urls)} 個目標...")
-            scraper.scrape_multiple_targets(target_urls)
-            print("\n所有目標處理完成。")
-        except Exception as e:
-            print(f"\n爬取過程中發生未預期的嚴重錯誤: {e}")
-            import traceback
-            traceback.print_exc()
-        finally:
-            if scraper:
-                scraper.close()
+
+        all_results = []
+
+        batch_size = 50
+
+        fieldnames = [
+            'URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
+            'tier_post_data', 'post_year_count', 'tier_count', 'total_links',
+            'facebook', 'twitter', 'instagram', 'youtube', 'twitch', 'tiktok', 'discord', 'social_link_count',
+            'text_posts', 'image_posts', 'video_posts', 'podcast_posts', 'audio_posts',
+            'link_posts', 'poll_posts', 'livestream_posts', 'other_posts', 'unknown',
+            'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
+            'total_likes_combined', 'total_comments_combined', 'free_chat_count', 'paid_chat_count',
+            'membership_tier_count', 'membership_tiers_json', 'about_word_count',
+            'about_total_members', 'about_paid_members',
+        ]
+        fieldnames = sorted(list(set(fieldnames)), key=lambda x: fieldnames.index(x))
+        print(f"準備開始爬取 {len(target_urls)} 個目標，每 {batch_size} 個目標將重啟一次瀏覽器。")
+
+        for i in range(0, len(target_urls), batch_size):
+            url_batch = target_urls[i:i + batch_size]
+            print("-" * 30)
+            print(f"開始處理新批次: 第 {i+1} 至 {i+len(url_batch)} 個 URL")
+
+            scraper = None # 初始化為 None
+            try:
+                scraper = PatreonScraperRefactored(output_dir=output_directory, headless=run_headless)
+                print(f"本批次準備爬取 {len(url_batch)} 個目標...")
+                batch_results = scraper.scrape_multiple_targets(url_batch, fieldnames)
+                #scraper.scrape_multiple_targets(url_batch)
+                print(f"本批次 {len(url_batch)} 個目標處理完成。")
+
+                if batch_results:
+                    all_results.extend(batch_results)
+                    print(f"本批次結果已加入總列表。目前共收集 {len(all_results)} 條記錄。")
+
+            except Exception as e:
+                print(f"\n爬取過程中發生未預期的嚴重錯誤: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                if scraper:
+                    scraper.close()
+                    print("瀏覽器已關閉，準備下一批次...")
+
+        print("\n所有批次處理完成。")
+
+        if all_results:
+            # 將 fieldnames 的定義移到這裡
+            fieldnames = [
+                'URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
+                'tier_post_data', 'post_year_count', 'tier_count', 'total_links',
+                'facebook', 'twitter', 'instagram', 'youtube', 'twitch', 'tiktok', 'discord', 'social_link_count',
+                'text_posts', 'image_posts', 'video_posts', 'podcast_posts', 'audio_posts',
+                'link_posts', 'poll_posts', 'livestream_posts', 'other_posts', 'unknown',
+                'public_likes', 'public_comments', 'locked_likes', 'locked_comments',
+                'total_likes_combined', 'total_comments_combined', 'free_chat_count', 'paid_chat_count',
+                'membership_tier_count', 'membership_tiers_json', 'about_word_count',
+                'about_total_members', 'about_paid_members',
+            ]
+            fieldnames = sorted(list(set(fieldnames)), key=lambda x: fieldnames.index(x))
+            
+            # 產生一個最終的、帶時間戳的檔名
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            final_output_path = os.path.join(output_directory, f'patreon_data_{timestamp}_combined.csv')
+            os.makedirs(output_directory, exist_ok=True) # 確保目錄存在
+
+            print(f"\n準備將全部 {len(all_results)} 條記錄寫入單一 CSV 檔案: {final_output_path}")
+            try:
+                with open(final_output_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
+                    writer.writeheader()
+                    writer.writerows(all_results)
+                print("最終 CSV 檔案寫入成功！")
+            except IOError as e:
+                print(f"寫入最終 CSV 檔案時出錯: {e}")
+            except Exception as e:
+                print(f"寫入最終 CSV 時發生未知錯誤: {e}")
+        else:
+            print("所有批次處理完畢，但沒有成功爬取到任何數據，未生成 CSV 檔案。")
+
 
         end_time_monotonic = time.monotonic() # 記錄結束時間
         total_duration_seconds = end_time_monotonic - start_time_monotonic
