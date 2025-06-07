@@ -1723,7 +1723,7 @@ if __name__ == "__main__":
 
         all_results = []
 
-        batch_size = 50
+        batch_size = 10
 
         fieldnames = [
             'URL', 'creator_name', 'total_post', 'patreon_number', 'income_per_month',
