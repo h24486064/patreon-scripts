@@ -116,6 +116,14 @@ class PatreonScraperRefactored:
         "tier_price": (By.XPATH, ".//div[contains(@aria-label, ' per month')]//div[starts-with(normalize-space(.), '$')]"),
         "tier_description_area": (By.XPATH, ".//a[@data-tag='patron-checkout-continue-button']/ancestor::div[2]/following-sibling::div"),
 
+        # 觸發方案顯示的按鈕
+        "see_membership_button": (By.XPATH, "//button[@data-tag='creator-header-see-membership-options']"),
+        "become_member_button": (By.XPATH, "//button[@data-tag='creator-become-a-patron-button']"),
+        
+        # 方案彈窗的容器與關閉按鈕
+        "membership_dialog_container": (By.XPATH, "//div[@class='sc-282dc35f-1 iaLQWT']"), # 用於等待彈窗出現/消失
+        "membership_dialog_close_button": (By.XPATH, "//button[@data-tag='dialog-close-icon']"),
+
         "tier_carousel_right_button": (By.XPATH, "//button[@data-tag='carousel-right']"),
         # 只選擇可點擊的右按鈕 (aria-disabled 不是 true)
         "tier_carousel_right_button_clickable": (By.XPATH, "//button[@data-tag='carousel-right' and (not(@aria-disabled) or @aria-disabled='false')]"),
@@ -468,18 +476,14 @@ class PatreonScraperRefactored:
         # time.sleep(1) # 等待返回生效
 
         return {'free_chat_count': free_chat_count, 'paid_chat_count': paid_chat_count}
-
-# 在 PatreonScraperRefactored 類別中
-
-# 在 PatreonScraperRefactored 類別中
-
-    def get_membership_tiers(self) -> List[Dict[str, Any]]:
+    
+    def _scrape_tier_cards_from_current_view(self) -> List[Dict[str, Any]]:
         """
-        爬取創作者定義的會員方案 (Tiers) 及其資訊。
-        通過滾動輪播，在發現新卡片時立即解析並存儲其內容。
+        [內部輔助方法] 從當前可見的視圖中爬取會員方案卡片。
+        處理輪播邏輯，並解析所有可見的卡片。
         """
-        print("正在獲取會員方案 (Tiers) 資訊 (發現時立即解析策略)...")
-        discovered_tiers_data = {} # 字典: {card_id: tier_info_dict}
+        print("  (輔助方法) 正在從當前視圖爬取會員方案...")
+        discovered_tiers_data = {}  # 字典: {card_id: tier_info_dict}
 
         # --- 獲取選擇器 ---
         card_selector = self.SELECTORS["tier_card"]
@@ -487,95 +491,142 @@ class PatreonScraperRefactored:
         carousel_left_clickable_selector = self.SELECTORS["tier_carousel_left_button_clickable"]
         carousel_right_clickable_selector = self.SELECTORS["tier_carousel_right_button_clickable"]
 
-        # --- 步驟 1: 處理輪播 ---
-        print("檢查是否存在會員方案輪播...")
+        # 等待至少一張卡片出現，確認方案區塊已加載
+        if not self._find_element(card_selector, timeout=10):
+            print("    在當前視圖中未找到任何會員方案卡片，提前返回。")
+            return []
+
+        # --- 處理輪播 ---
         right_button_exists = self._find_element(carousel_right_selector, timeout=2)
-
         if right_button_exists:
-            print("檢測到會員方案輪播。")
+            print("    檢測到會員方案輪播。")
             max_clicks = 15
-            click_count_left = 0
-            click_count_right = 0
+            click_count_left, click_count_right = 0, 0
 
-            # --- 1a: 先滾動到最左邊 ---
-            print("  嘗試滾動到最左端...")
+            # --- 滾動到最左邊 ---
             while click_count_left < max_clicks:
-                clickable_button = self._find_element(carousel_left_clickable_selector, timeout=0.5)
-                if clickable_button:
-                    if self._click_element(carousel_left_clickable_selector, timeout=1):
-                        click_count_left += 1; time.sleep(0.6)
-                    else: break
-                else: break
-            if click_count_left == max_clicks: print(f"警告：向左滾動達到最大點擊次數 ({max_clicks})。")
-            print("  應已到達最左端。")
+                if self._find_element(carousel_left_clickable_selector, timeout=0.5):
+                    self._click_element(carousel_left_clickable_selector, timeout=1)
+                    click_count_left += 1
+                    time.sleep(0.6)
+                else:
+                    break
+            print("    應已到達最左端。")
 
-            # --- 1b: 初始掃描並處理 ---
-            print("  初始掃描並處理可見卡片...")
+            # --- 初始掃描 ---
             initial_cards = self._find_elements(card_selector)
-            print(f"    找到 {len(initial_cards)} 個初始卡片元素。")
             for card_element in initial_cards:
                 parsed_info = self._parse_tier_card(card_element)
                 if parsed_info and parsed_info.get('tier_id'):
-                     card_id = parsed_info['tier_id']
-                     if card_id not in discovered_tiers_data: # 確保只添加一次
-                          print(f"    初始發現並處理卡片 ID: {card_id}")
-                          discovered_tiers_data[card_id] = parsed_info
-                     # else: print(f"    卡片 ID {card_id} 已處理過 (初始)。") # 調試用
-                # else: print(f"    一個初始卡片解析失敗或無 ID。") # 調試用
+                    discovered_tiers_data[parsed_info['tier_id']] = parsed_info
 
-            print(f"  初始處理後，已記錄 {len(discovered_tiers_data)} 個方案。")
-
-            # --- 1c: 向右滾動，發現新卡片時處理 ---
-            print("  嘗試向右滾動並處理新出現的卡片...")
+            # --- 向右滾動並處理新卡片 ---
             while click_count_right < max_clicks:
-                clickable_button = self._find_element(carousel_right_clickable_selector, timeout=0.5)
-                if clickable_button:
-                    if self._click_element(carousel_right_clickable_selector, timeout=1):
-                        click_count_right += 1
-                        time.sleep(0.8) # 等待滾動和可能的加載
-
-                        # 查找當前可見卡片
-                        current_cards = self._find_elements(card_selector)
-                        # print(f"    右滾第 {click_count_right} 次後找到 {len(current_cards)} 個卡片元素。") # 調試用
-                        found_new_in_step = False
-                        for card_element in current_cards:
-                             card_id = card_element.get_attribute('id') # 先獲取ID檢查
-                             if card_id and card_id not in discovered_tiers_data:
-                                 # 發現了之前未記錄的 ID，立即解析
-                                 print(f"    發現新卡片 ID: {card_id}，嘗試處理...")
-                                 parsed_info = self._parse_tier_card(card_element)
-                                 if parsed_info: # 確保解析成功
-                                     discovered_tiers_data[card_id] = parsed_info
-                                     found_new_in_step = True
-                                 # else: print(f"    新卡片 ID {card_id} 解析失敗。") # 調試用
-
-                        # if not found_new_in_step: print(f"    此步未發現新卡片。") # 調試用
-
-                    else:
-                        print("    點擊向右按鈕失敗，停止向右滾動。")
-                        break
+                if self._find_element(carousel_right_clickable_selector, timeout=0.5):
+                    self._click_element(carousel_right_clickable_selector, timeout=1)
+                    click_count_right += 1
+                    time.sleep(0.8)
+                    current_cards = self._find_elements(card_selector)
+                    for card_element in current_cards:
+                        card_id = card_element.get_attribute('id')
+                        if card_id and card_id not in discovered_tiers_data:
+                            parsed_info = self._parse_tier_card(card_element)
+                            if parsed_info:
+                                discovered_tiers_data[card_id] = parsed_info
                 else:
-                    print("    未找到可點擊的向右按鈕，應已到達最右端。")
                     break
-            if click_count_right == max_clicks: print(f"警告：向右滾動達到最大點擊次數 ({max_clicks})。")
-
         else:
             # --- 處理沒有輪播的情況 ---
-            print("未檢測到會員方案輪播按鈕。直接查找並處理所有卡片...")
+            print("    未檢測到會員方案輪播按鈕。直接查找所有卡片...")
             all_cards = self._find_elements(card_selector)
-            print(f"  找到 {len(all_cards)} 個卡片元素。")
             for card_element in all_cards:
-                 parsed_info = self._parse_tier_card(card_element)
-                 if parsed_info and parsed_info.get('tier_id'):
-                      card_id = parsed_info['tier_id']
-                      if card_id not in discovered_tiers_data: # 確保只添加一次
-                           discovered_tiers_data[card_id] = parsed_info
+                parsed_info = self._parse_tier_card(card_element)
+                if parsed_info and parsed_info.get('tier_id'):
+                    discovered_tiers_data[parsed_info['tier_id']] = parsed_info
 
-        # --- 步驟 2: 整理結果 ---
-        tiers_data = list(discovered_tiers_data.values()) # 將字典的值（解析好的 tier_info）轉換為列表
-        print(f"會員方案資訊提取完成，共 {len(tiers_data)} 個方案。")
+        return list(discovered_tiers_data.values())
+
+
+
+    def get_membership_tiers(self) -> List[Dict[str, Any]]:
+        """
+        獲取會員方案 (Tiers) 資訊。
+        能應對三種頁面結構：
+        1. 點擊 "See membership options" 按鈕彈出對話框。
+        2. 點擊 "Become a member" 按鈕跳轉到新頁面。
+        3. 方案直接顯示在主頁上 (舊版結構)。
+        """
+        print("正在檢查獲取會員方案 (Tiers) 的方法...")
+        original_url = self.driver.current_url
+        tiers_data = []
+
+        # 策略 1: 查找 "See membership options" 按鈕 (彈窗模式)
+        see_options_button = self._find_element(self.SELECTORS["see_membership_button"], timeout=3)
+        if see_options_button:
+            print("  找到 'See membership options' 按鈕，將點擊進入彈窗...")
+            if self._click_element(self.SELECTORS["see_membership_button"], timeout=5):
+                try:
+                    # 等待彈窗容器出現
+                    WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located(self.SELECTORS["membership_dialog_container"])
+                    )
+                    print("  彈窗已打開，開始爬取方案...")
+                    tiers_data = self._scrape_tier_cards_from_current_view()
+                    
+                    # 爬取完畢，關閉彈窗
+                    print("  方案爬取完畢，正在關閉彈窗...")
+                    if self._click_element(self.SELECTORS["membership_dialog_close_button"], timeout=5):
+                         WebDriverWait(self.driver, 10).until(
+                            EC.invisibility_of_element_located(self.SELECTORS["membership_dialog_container"])
+                        )
+                         print("  彈窗已成功關閉。")
+                    else:
+                        print("  警告：關閉彈窗按鈕點擊失敗，嘗試按 ESC 鍵。")
+                        webdriver.ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
+
+                except TimeoutException:
+                    print("  等待或關閉會員方案彈窗時超時。")
+                except Exception as e:
+                    print(f"  處理彈窗方案時發生錯誤: {e}")
+            
+            print(f"會員方案資訊提取完成 (彈窗模式)，共 {len(tiers_data)} 個方案。")
+            return tiers_data
+
+        # 策略 2: 查找 "Become a member" 按鈕 (新頁面模式)
+        become_member_button = self._find_element(self.SELECTORS["become_member_button"], timeout=3)
+        if become_member_button:
+            print("  找到 'Become a member' 按鈕，將導航至新頁面...")
+            if self._click_element(self.SELECTORS["become_member_button"], timeout=5):
+                try:
+                    # 等待頁面跳轉並出現卡片
+                    WebDriverWait(self.driver, 15).until(
+                        EC.presence_of_element_located(self.SELECTORS["tier_card"])
+                    )
+                    print("  已進入方案頁面，開始爬取...")
+                    tiers_data = self._scrape_tier_cards_from_current_view()
+                    
+                    # 爬取完畢，返回上一頁
+                    print("  方案爬取完畢，正在導航回原始頁面...")
+                    self.driver.back()
+                    # 等待原始頁面的關鍵元素重新加載
+                    WebDriverWait(self.driver, 15).until(
+                        EC.presence_of_element_located(self.SELECTORS["creator_name"])
+                    )
+                    print("  已成功返回原始頁面。")
+
+                except TimeoutException:
+                    print("  等待方案頁面加載或返回原始頁面時超時。")
+                except Exception as e:
+                    print(f"  處理新頁面方案時發生錯誤: {e}")
+            
+            print(f"會員方案資訊提取完成 (新頁面模式)，共 {len(tiers_data)} 個方案。")
+            return tiers_data
+
+        # 策略 3: 在當前頁面直接爬取 (舊版結構)
+        print("  未找到新版方案按鈕，嘗試直接在當前頁面爬取 (舊版結構)...")
+        tiers_data = self._scrape_tier_cards_from_current_view()
+        print(f"會員方案資訊提取完成 (舊版結構)，共 {len(tiers_data)} 個方案。")
         return tiers_data
-
     # --- 解析懸浮篩選視窗的輔助函數 ---
 
     def _parse_filter_dialog(self, dialog_element: webdriver.remote.webelement.WebElement) -> Dict[str, Any]:
@@ -1704,7 +1755,7 @@ if __name__ == "__main__":
     #     except ValueError:
     #         print("警告：提供的參數不是有效的數字，將處理所有 URL。")
 
-    url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") 
+    url_file = os.path.join(os.path.dirname(__file__), "test_for_terminal.txt") 
     
 
     output_directory = os.path.join(os.path.dirname(__file__), "Patreon_Scraped_Data") 
