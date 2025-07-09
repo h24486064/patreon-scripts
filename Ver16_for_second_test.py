@@ -477,7 +477,7 @@ class PatreonScraperRefactored:
 
         return {'free_chat_count': free_chat_count, 'paid_chat_count': paid_chat_count}
     
-    def _scrape_tier_cards_from_current_view(self) -> List[Dict[str, Any]]:
+    def _scrape_tier_cards_from_current_view(self, parsing_mode: str = 'dialog') -> List[Dict[str, Any]]:
         """
         [內部輔助方法] 從當前可見的視圖中爬取會員方案卡片。
         處理輪播邏輯，並解析所有可見的卡片。
@@ -530,7 +530,7 @@ class PatreonScraperRefactored:
                     for card_element in current_cards:
                         card_id = card_element.get_attribute('id')
                         if card_id and card_id not in discovered_tiers_data:
-                            parsed_info = self._parse_tier_card(card_element)
+                            parsed_info = self._parse_tier_card(card_element, parsing_mode = parsing_mode)
                             if parsed_info:
                                 discovered_tiers_data[card_id] = parsed_info
                 else:
@@ -540,7 +540,7 @@ class PatreonScraperRefactored:
             print("    未檢測到會員方案輪播按鈕。直接查找所有卡片...")
             all_cards = self._find_elements(card_selector)
             for card_element in all_cards:
-                parsed_info = self._parse_tier_card(card_element)
+                parsed_info = self._parse_tier_card(card_element, parsing_mode=parsing_mode)
                 if parsed_info and parsed_info.get('tier_id'):
                     discovered_tiers_data[parsed_info['tier_id']] = parsed_info
 
@@ -603,7 +603,7 @@ class PatreonScraperRefactored:
                         EC.presence_of_element_located(self.SELECTORS["tier_card"])
                     )
                     print("  已進入方案頁面，開始爬取...")
-                    tiers_data = self._scrape_tier_cards_from_current_view()
+                    tiers_data = self._scrape_tier_cards_from_current_view(parsing_mode='dedicated_page')
                     
                     # 爬取完畢，返回上一頁
                     print("  方案爬取完畢，正在導航回原始頁面...")
@@ -716,14 +716,16 @@ class PatreonScraperRefactored:
 
 # 在 PatreonScraperRefactored 類別中修改
 
-    def _parse_tier_card(self, card_element: webdriver.remote.webelement.WebElement) -> Optional[Dict[str, Any]]:
+    def _parse_tier_card(self, card_element: webdriver.remote.webelement.WebElement, parsing_mode: str = 'dialog') -> Optional[Dict[str, Any]]:
         """
-        解析單個會員方案卡片元素。
-        使用 get_attribute('textContent') 替代 .text 嘗試獲取不可見元素的文本。
+        [最終版] 解析單個會員方案卡片元素。
+        能根據 parsing_mode 參數，選擇不同的解析策略。
+        'dialog': 用於彈窗或舊版頁面 (原有的邏輯)
+        'dedicated_page': 用於 "become a member" 的獨立方案頁面
         """
         card_id = None
         try:
-            # (獲取 ID 的邏輯不變，包含重試)
+            # (獲取 ID 的邏輯不變)
             for _ in range(2):
                 try:
                     card_id = card_element.get_attribute('id')
@@ -734,63 +736,54 @@ class PatreonScraperRefactored:
                 return None
 
             tier_info = {'name': '', 'price': 0.0, 'description_word_count': 0, 'tier_id': card_id}
-            max_retries = 3
-            retry_delay = 0.5
 
-            # --- 修改點：使用 textContent ---
-            def get_element_text_content(selector, parent):
-                element = None
-                for attempt in range(max_retries):
-                    try:
-                        element = self._find_element(selector, parent=parent, timeout=1)
-                        if element:
-                            # 嘗試獲取 textContent
-                            content = element.get_attribute('textContent')
-                            if content is not None: # 確保屬性存在
-                                return content.strip() # 返回去除首尾空格的文本
-                            else:
-                                # 如果 textContent 為 None，嘗試 innerText 作為備用
-                                content = element.get_attribute('innerText')
-                                return content.strip() if content is not None else ""
-                    except StaleElementReferenceException:
-                        if attempt == max_retries - 1: print(f"      查找元素時 Stale (ID: {card_id}, 多次重試失敗)")
-                        else: time.sleep(retry_delay)
-                    except TimeoutException:
-                        print(f"      查找元素時 Timeout (ID: {card_id}, attempt {attempt+1})")
-                        break # 超時通常不需重試相同元素
-                    except Exception as e_find:
-                         print(f"      查找或獲取文本時未知錯誤 (ID: {card_id}): {e_find}")
-                         break # 其他錯誤也退出重試
-                return "" # 如果所有嘗試都失敗，返回空字符串
+            # --- 解析名稱和價格 (通用邏輯) ---
+            name_element = self._find_element(self.SELECTORS["tier_name"], parent=card_element, timeout=1)
+            if name_element:
+                tier_info['name'] = name_element.get_attribute('textContent').strip()
 
-            # 提取名稱
-            name_text = get_element_text_content(self.SELECTORS["tier_name"], card_element)
-            tier_info['name'] = name_text
-            print(f"    DEBUG: 原始名稱文本 (ID: {card_id}): '{name_text}'") # 增加名稱的 DEBUG
-
-            # 提取價格
-            price_text_raw = get_element_text_content(self.SELECTORS["tier_price"], card_element)
-            print(f"    DEBUG: 原始價格文本 (ID: {card_id}): '{price_text_raw}'")
-            if price_text_raw: # 確保文本不是空的再解析
+            price_element = self._find_element(self.SELECTORS["tier_price"], parent=card_element, timeout=1)
+            if price_element:
+                price_text_raw = price_element.get_attribute('textContent').strip()
                 price_value = parse_number(price_text_raw)
                 tier_info['price'] = price_value if price_value is not None else 0.0
 
-            # 提取描述區域
-            desc_text_raw = get_element_text_content(self.SELECTORS["tier_description_area"], card_element)
-            print(f"    DEBUG: 原始描述文本 (ID: {card_id}): '{desc_text_raw[:100]}...'") # 打印前100個字符
-            if desc_text_raw:
-                words = desc_text_raw.strip().split()
+            # --- 根據模式選擇描述區的解析方式 ---
+            description_text = ""
+            if parsing_mode == 'dedicated_page':
+                # [新邏輯] 專門用於處理 "become a member" 頁面
+                print(f"    (使用 'dedicated_page' 模式解析描述: {card_id})")
+                try:
+                    show_more_button = self._find_element((By.XPATH, ".//button[contains(., 'Show more')]"), parent=card_element, timeout=0.2)
+                    if show_more_button:
+                        self.driver.execute_script("arguments[0].click();", show_more_button)
+                        time.sleep(0.5)
+                except Exception:
+                    pass # 找不到或點擊失敗也沒關係
+                
+                # 使用針對新頁面的、更穩定的描述區選擇器
+                desc_container = self._find_element((By.XPATH, ".//div[.//h3[contains(text(), 'What Will You Find?')]]"), parent=card_element, timeout=1)
+                if desc_container:
+                    description_text = desc_container.get_attribute('textContent')
+            else:
+                # [舊邏輯] 用於彈窗和舊版頁面，保持原樣
+                print(f"    (使用 'dialog' 模式解析描述: {card_id})")
+                desc_container = self._find_element(self.SELECTORS["tier_description_area"], parent=card_element, timeout=1)
+                if desc_container:
+                    description_text = desc_container.get_attribute('textContent')
+            
+            if description_text:
+                words = description_text.strip().split()
                 tier_info['description_word_count'] = len(words)
-            # --- 修改點結束 ---
 
+            # --- 返回結果 ---
             if tier_info['name'] or tier_info['price'] > 0:
                  print(f"    成功解析/記錄卡片 ID {card_id}: Name='{tier_info['name']}', Price={tier_info['price']}, DescWords={tier_info['description_word_count']}")
                  return tier_info
             else:
                  print(f"    卡片 ID {card_id} 解析完成，但未提取到有效 Name 或 Price。")
-                 return tier_info # 仍然返回，標記已處理
+                 return tier_info
 
-        # (外層的 Stale 和 Exception 捕獲不變)
         except StaleElementReferenceException:
             print(f"  解析卡片 (ID: {card_id or '未知'}) 時卡片元素本身 Stale。")
             return None
