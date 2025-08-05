@@ -548,19 +548,48 @@ class PatreonScraperRefactored:
 
 
 
+# 在 PatreonScraperRefactored 類別中，替換掉整個舊的 get_membership_tiers 函式
     def get_membership_tiers(self) -> List[Dict[str, Any]]:
         """
         獲取會員方案 (Tiers) 資訊。
-        能應對三種頁面結構：
-        1. 點擊 "See membership options" 按鈕彈出對話框。
-        2. 點擊 "Become a member" 按鈕跳轉到新頁面。
-        3. 方案直接顯示在主頁上 (舊版結構)。
+        [已更新] 調整了策略的檢查優先級，優先處理 'Become a member' 的情況。
         """
-        print("正在檢查獲取會員方案 (Tiers) 的方法...")
+        print("正在檢查獲取會員方案 (Tiers) 的方法 (已更新優先級)...")
         original_url = self.driver.current_url
         tiers_data = []
 
-        # 策略 1: 查找 "See membership options" 按鈕 (彈窗模式)
+        # --- [優先策略] 策略 2: 查找 "Become a member" 按鈕 (新頁面模式) ---
+        # 優先檢查這個按鈕，因為它對應的頁面結構通常需要特定的解析模式。
+        become_member_button = self._find_element(self.SELECTORS["become_member_button"], timeout=3)
+        if become_member_button:
+            print("  找到 'Become a member' 按鈕 (高優先級)，將導航至新頁面...")
+            if self._click_element(self.SELECTORS["become_member_button"], timeout=5):
+                try:
+                    # 等待頁面跳轉並出現卡片
+                    WebDriverWait(self.driver, 15).until(
+                        EC.presence_of_element_located(self.SELECTORS["tier_card"])
+                    )
+                    print("  已進入方案頁面，開始爬取...")
+                    # 明確傳入 'dedicated_page' 模式
+                    tiers_data = self._scrape_tier_cards_from_current_view(parsing_mode='dedicated_page')
+                    
+                    # 爬取完畢，返回上一頁
+                    print("  方案爬取完畢，正在導航回原始頁面...")
+                    self.driver.back()
+                    # 等待原始頁面的關鍵元素重新加載
+                    WebDriverWait(self.driver, 15).until(
+                        EC.presence_of_element_located(self.SELECTORS["creator_name"])
+                    )
+                    print("  已成功返回原始頁面。")
+
+                except Exception as e:
+                    print(f"  處理新頁面方案時發生錯誤: {e}")
+            
+            print(f"會員方案資訊提取完成 (新頁面模式)，共 {len(tiers_data)} 個方案。")
+            return tiers_data
+
+        # --- [次要策略] 策略 1: 查找 "See membership options" 按鈕 (彈窗模式) ---
+        # 只有在找不到 "Become a member" 按鈕時，才檢查此按鈕。
         see_options_button = self._find_element(self.SELECTORS["see_membership_button"], timeout=3)
         if see_options_button:
             print("  找到 'See membership options' 按鈕，將點擊進入彈窗...")
@@ -571,6 +600,7 @@ class PatreonScraperRefactored:
                         EC.presence_of_element_located(self.SELECTORS["membership_dialog_container"])
                     )
                     print("  彈窗已打開，開始爬取方案...")
+                    # 使用預設的 'dialog' 模式
                     tiers_data = self._scrape_tier_cards_from_current_view()
                     
                     # 爬取完畢，關閉彈窗
@@ -584,50 +614,18 @@ class PatreonScraperRefactored:
                         print("  警告：關閉彈窗按鈕點擊失敗，嘗試按 ESC 鍵。")
                         webdriver.ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
 
-                except TimeoutException:
-                    print("  等待或關閉會員方案彈窗時超時。")
                 except Exception as e:
                     print(f"  處理彈窗方案時發生錯誤: {e}")
             
             print(f"會員方案資訊提取完成 (彈窗模式)，共 {len(tiers_data)} 個方案。")
             return tiers_data
 
-        # 策略 2: 查找 "Become a member" 按鈕 (新頁面模式)
-        become_member_button = self._find_element(self.SELECTORS["become_member_button"], timeout=3)
-        if become_member_button:
-            print("  找到 'Become a member' 按鈕，將導航至新頁面...")
-            if self._click_element(self.SELECTORS["become_member_button"], timeout=5):
-                try:
-                    # 等待頁面跳轉並出現卡片
-                    WebDriverWait(self.driver, 15).until(
-                        EC.presence_of_element_located(self.SELECTORS["tier_card"])
-                    )
-                    print("  已進入方案頁面，開始爬取...")
-                    tiers_data = self._scrape_tier_cards_from_current_view(parsing_mode='dedicated_page')
-                    
-                    # 爬取完畢，返回上一頁
-                    print("  方案爬取完畢，正在導航回原始頁面...")
-                    self.driver.back()
-                    # 等待原始頁面的關鍵元素重新加載
-                    WebDriverWait(self.driver, 15).until(
-                        EC.presence_of_element_located(self.SELECTORS["creator_name"])
-                    )
-                    print("  已成功返回原始頁面。")
-
-                except TimeoutException:
-                    print("  等待方案頁面加載或返回原始頁面時超時。")
-                except Exception as e:
-                    print(f"  處理新頁面方案時發生錯誤: {e}")
-            
-            print(f"會員方案資訊提取完成 (新頁面模式)，共 {len(tiers_data)} 個方案。")
-            return tiers_data
-
-        # 策略 3: 在當前頁面直接爬取 (舊版結構)
+        # --- [備用策略] 策略 3: 在當前頁面直接爬取 (舊版結構) ---
         print("  未找到新版方案按鈕，嘗試直接在當前頁面爬取 (舊版結構)...")
+        # 使用預設的 'dialog' 模式
         tiers_data = self._scrape_tier_cards_from_current_view()
         print(f"會員方案資訊提取完成 (舊版結構)，共 {len(tiers_data)} 個方案。")
         return tiers_data
-    # --- 解析懸浮篩選視窗的輔助函數 ---
 
     def _parse_filter_dialog(self, dialog_element: webdriver.remote.webelement.WebElement) -> Dict[str, Any]:
         """
@@ -1386,169 +1384,90 @@ class PatreonScraperRefactored:
         return about_data
 
 
+# 將 Ver16.py 中原本的 scrape_url 函式，完整替換成下面這個版本
     def scrape_url(self, url: str) -> Optional[Dict[str, Any]]:
         """
-        爬取單個 URL 的所有內容。
-        如果決定跳過，則返回 None。
+        [精簡版] 僅爬取會籍 (Membership Tiers) 的所有內容。
+        跳過所有耗時的文章內容、留言、按讚、社交連結等。
         """
-        print(f"\n--- 開始爬取 URL: {url} ---")
+        print(f"\n--- 開始爬取 URL (僅會籍模式): {url} ---")
         try:
             self.driver.get(url)
             print("等待頁面加載...")
-            creator_name_element = self._find_element(self.SELECTORS["creator_name"], timeout=20) # 先獲取元素
+            creator_name_element = self._find_element(self.SELECTORS["creator_name"], timeout=20)
             if not creator_name_element:
-                 print(f"頁面關鍵元素 (creator_name) 加載超時或未找到。URL: {url} 可能無效或頁面結構改變。跳過此 URL。")
-                 # >>> 修改點：直接返回 None <<<
-                 return None 
+                 print(f"頁面關鍵元素 (creator_name) 加載超時或未找到。跳過此 URL。")
+                 return None
             
-            creator_name_text = creator_name_element.text.strip() # 在確認元素存在後再獲取文本
-            print(f"頁面初步加載完成。Creator Name: {creator_name_text}")
-
+            print(f"頁面初步加載完成。Creator Name: {creator_name_element.text.strip()}")
 
             self.handle_age_verification()
             self.driver.execute_script("window.scrollTo(0, 0);")
             time.sleep(0.5)
 
+            # 仍然獲取靜態內容，因為需要創作者名稱和月收入等基本資訊
             static_data = self.get_static_content()
-            # 在 get_static_content 之後，static_data['creator_name'] 應該已經被賦值 (如果成功)
-            # 所以我們可以從 static_data 中獲取 creator_name 用於日誌
             
-            initial_patron_count = static_data.get('patron_count', 0)
-            if initial_patron_count is None or initial_patron_count == 0:
-                # >>> 修改點：在返回 None 前打印原因 <<<
-                print(f"  主頁初步 Patron Count 為 {initial_patron_count}。URL: {url}, Creator: {static_data.get('creator_name', 'N/A')}。跳過詳細爬取。")
-                # >>> 修改點：直接返回 None <<<
-                return None
-            
-            print(f"  主頁初步 Patron Count 為 {initial_patron_count} (Creator: {static_data.get('creator_name', 'N/A')})，繼續詳細爬取...")
-            
-            # ... (後續的詳細爬取邏輯保持不變，如 combined_about_data = self._get_combined_about_page_data() 等) ...
-            
-            # (組合 result 字典的邏輯保持不變)
-            # ...
-            # result = { ... }
-            # ...
-
-            # print(f"--- URL: {url} 爬取完成 ---") # 這行可以移到 try 塊的末尾，成功返回 result 前
-            # return result # 成功時返回包含數據的字典
-
-        # except Exception as e: # 捕獲所有其他未預期錯誤
-        #     print(f"爬取 URL {url} 時發生嚴重錯誤: {e}")
-        #     import traceback
-        #     traceback.print_exc()
-        #     # >>> 修改點：嚴重錯誤也返回 None <<<
-        #     return None
-
-        # --- 將成功返回和錯誤處理放在 try 塊的末尾 ---
-            combined_about_data = self._get_combined_about_page_data()
-            social_links_data = self.get_social_links()
+            # [核心修改] 只呼叫獲取會籍的函式
+            print(">>> 跳過所有文章相關步驟，直接獲取會籍資訊...")
             membership_tiers_data = self.get_membership_tiers()
-            post_types_data = {}
-            post_years_data = {}
-            post_tiers_data = self.get_post_tiers()
             
-            print("檢查是否存在新的懸浮篩選視窗觸發按鈕...")
-            new_structure_button = self._find_element(self.SELECTORS["filter_dialog_toggle_button"], timeout=3)
-            if new_structure_button:
-                print("檢測到新的懸浮篩選視窗按鈕。")
-                if self._click_element(self.SELECTORS["filter_dialog_toggle_button"], timeout=3):
-                    dialog_container = self._find_element(self.SELECTORS["filter_dialog_container"], timeout=3)
-                    if dialog_container:
-                        all_filter_data_from_dialog = self._parse_filter_dialog(dialog_container)
-                        post_types_data = all_filter_data_from_dialog.get('post_type_dict', {})
-                        post_years_data = all_filter_data_from_dialog.get('post_year_dict', {})
-                        try: 
-                            body_element = self._find_element((By.TAG_NAME, 'body'))
-                            if body_element: webdriver.ActionChains(self.driver).move_to_element(body_element).click().perform()
-                            WebDriverWait(self.driver, 5).until(EC.invisibility_of_element_located(self.SELECTORS["filter_dialog_container"]))
-                        except: 
-                            try: webdriver.ActionChains(self.driver).send_keys(Keys.ESCAPE).perform()
-                            except: pass
-                    else: print("未能找到懸浮視窗容器。")
-                else: print("點擊新的懸浮篩選視窗觸發按鈕失敗。")
-            else:
-                print("未檢測到新的懸浮篩選視窗按鈕，使用原有邏輯處理篩選數據。")
-                try: post_types_data = self.get_post_types()
-                except Exception as e: print(f"舊結構 get_post_types 失敗: {e}"); post_types_data = {}
-                try: post_years_data = self.get_post_years()
-                except Exception as e: print(f"舊結構 get_post_years 失敗: {e}"); post_years_data = {}
+            # --- 以下所有函式呼叫都被暫時禁用 ---
+            # combined_about_data = self._get_combined_about_page_data()
+            # social_links_data = self.get_social_links()
+            # post_types_data = {}
+            # post_years_data = {}
+            # post_tiers_data = self.get_post_tiers()
+            # social_values_data = self.get_social_values()
+            # chat_details = self.get_chat_room_details()
+            # ...
 
-            social_values_data = self.get_social_values()
-            chat_details = self.get_chat_room_details()
-            free_chat_count = chat_details.get('free_chat_count', 0)
-            paid_chat_count = chat_details.get('paid_chat_count', 0)
-            has_chat_tab_str = 'yes' if (free_chat_count > 0 or paid_chat_count > 0) else 'no'
-            about_word_count = combined_about_data.get('about_word_count', 0)
+            print(">>> 會籍資訊獲取完畢。")
 
-            current_url_lower = self.driver.current_url.lower()
-            # 檢查是否需要導航回主頁面 (url)
-            if self.driver.current_url != url and ("/about" in current_url_lower or "/chats" in current_url_lower or "/tiers" in current_url_lower): # 增加了 /tiers
-                print(f"當前在 {self.driver.current_url}，導航回主頁 ({url}) 以計算總連結...")
-                self.driver.get(url) 
-                try:
-                    WebDriverWait(self.driver, 10).until(EC.presence_of_element_located(self.SELECTORS["creator_name"]))
-                except TimeoutException:
-                    print(f"警告: 導航回主頁 ({url}) 後 creator_name 未加載。")
-
-
-            print("正在計算頁面外部連結數...")
-            all_a_tags = self._find_elements((By.TAG_NAME, "a"))
-            external_links_count = 0
-            for link_element in all_a_tags:
-                try:
-                    href = link_element.get_attribute('href')
-                    if href and href.strip() and not href.startswith("#") and not href.startswith("https://www.patreon.com/"):
-                        external_links_count += 1
-                except StaleElementReferenceException: continue
-                except Exception as e: print(f"處理連結標籤時出錯: {e}"); continue
-            total_links = external_links_count
-            print(f"頁面外部連結數: {total_links}")
-            
-            final_patron_number = combined_about_data.get('about_paid_members')
-            if final_patron_number is None:
-                final_patron_number = combined_about_data.get('about_total_members')
-            if final_patron_number is None: # 如果 About 頁的都沒取到，使用主頁的 initial_patron_count
-                final_patron_number = initial_patron_count 
-            
+            # 建立一個精簡的結果字典，只包含我們這次爬取的資料
+            # 其他欄位會給予預設值，以確保 CSV 格式一致
             result = {
                 'URL': url,
-                'creator_name': static_data.get('creator_name', ''), # static_data['creator_name'] 應已由 creator_name_text 賦值
-                'total_post': static_data.get('total_posts', 0),
-                'patreon_number': final_patron_number if final_patron_number is not None else 0,
-                'about_total_members': combined_about_data.get('about_total_members'),
-                'about_paid_members': combined_about_data.get('about_paid_members'),
-                'about_word_count': about_word_count,
+                'creator_name': static_data.get('creator_name', ''),
+                'patreon_number': static_data.get('patron_count', 0),
                 'income_per_month': static_data.get('income_per_month', 0),
-                'tier_post_dict': post_tiers_data,
-                'post_year_dict': post_years_data,
-                'post_type_dict': post_types_data,
-                'social_links_dict': social_links_data,
-                'tier_count': len(post_tiers_data),
-                'total_links': total_links,
-                'social_link_count': social_links_data.get('social_link_count', 0),
-                'public_likes': social_values_data.get('public_likes', 0),
-                'public_comments': social_values_data.get('public_comments', 0),
-                'locked_likes': social_values_data.get('locked_likes', 0),
-                'locked_comments': social_values_data.get('locked_comments', 0),
-                'has_chat_tab': has_chat_tab_str,
-                'free_chat_count': free_chat_count,
-                'paid_chat_count': paid_chat_count,
+                'total_post': static_data.get('total_posts', 0),
+                
+                # 本次執行的核心資料
                 'membership_tiers': membership_tiers_data,
                 'membership_tier_count': len(membership_tiers_data),
+                
+                # 其他欄位使用空值或預設值
+                'about_total_members': None,
+                'about_paid_members': None,
+                'about_word_count': 0,
+                'tier_post_dict': {},
+                'post_year_dict': {},
+                'post_type_dict': {},
+                'social_links_dict': {},
+                'tier_count': 0,
+                'total_links': 0,
+                'social_link_count': 0,
+                'public_likes': 0,
+                'public_comments': 0,
+                'locked_likes': 0,
+                'locked_comments': 0,
+                'has_chat_tab': 'no',
+                'free_chat_count': 0,
+                'paid_chat_count': 0,
             }
-            result['total_likes_combined'] = result['public_likes'] + result['locked_likes']
-            result['total_comments_combined'] = result['public_comments'] + result['locked_comments']
+            result['total_likes_combined'] = 0
+            result['total_comments_combined'] = 0
+            
+            print(f"--- URL: {url} 爬取完成 (僅會籍模式) ---")
+            return result
 
-            print(f"--- URL: {url} 爬取完成 (成功) ---")
-            return result # 成功完成所有爬取步驟後返回數據字典
-
-        except Exception as e: # 捕獲在詳細爬取過程中可能發生的任何其他未預期錯誤
+        except Exception as e:
             print(f"爬取 URL {url} 的詳細數據時發生嚴重錯誤: {e}")
             import traceback
             traceback.print_exc()
-            # >>> 修改點：嚴重錯誤也返回 None <<<
             return None
-
+        
     def _prepare_row_data(self, data: Dict[str, Any], fieldnames: List[str]) -> Dict[str, Any]:
         """
         根據 fieldnames 準備用於寫入 CSV 的單行數據。

@@ -118,10 +118,10 @@ class PatreonScraperRefactored:
 
         # 觸發方案顯示的按鈕
         "see_membership_button": (By.XPATH, "//button[@data-tag='creator-header-see-membership-options']"),
-        "become_member_button": (By.XPATH, "//button[@data-tag='creator-become-a-patron-button']"),
+        "become_member_button": (By.XPATH, "//button[@data-tag='creator-become-a-patron-button' and (contains(., 'Become a member') or contains(., '成為會員'))]"),
         
         # 方案彈窗的容器與關閉按鈕
-        "membership_dialog_container": (By.XPATH, "//div[@class='sc-282dc35f-1 iaLQWT']"), # 用於等待彈窗出現/消失
+        "membership_dialog_container": (By.XPATH, "//div[@data-tag='creator-public-page-tiers-overlay-takeover']"), # 用於等待彈窗出現/消失
         "membership_dialog_close_button": (By.XPATH, "//button[@data-tag='dialog-close-icon']"),
 
         "tier_carousel_right_button": (By.XPATH, "//button[@data-tag='carousel-right']"),
@@ -552,15 +552,45 @@ class PatreonScraperRefactored:
         """
         獲取會員方案 (Tiers) 資訊。
         能應對三種頁面結構：
-        1. 點擊 "See membership options" 按鈕彈出對話框。
-        2. 點擊 "Become a member" 按鈕跳轉到新頁面。
+        1. (優先) 點擊 "Become a member" 按鈕跳轉到新頁面。
+        2. 點擊 "See membership options" 按鈕彈出對話框。
         3. 方案直接顯示在主頁上 (舊版結構)。
         """
         print("正在檢查獲取會員方案 (Tiers) 的方法...")
         original_url = self.driver.current_url
         tiers_data = []
 
-        # 策略 1: 查找 "See membership options" 按鈕 (彈窗模式)
+        # 策略 1: (新優先級) 查找 "Become a member" 按鈕 (新頁面模式)
+        become_member_button = self._find_element(self.SELECTORS["become_member_button"], timeout=3)
+        if become_member_button:
+            print("  找到 'Become a member' / '成為會員' 按鈕，將導航至新頁面...")
+            if self._click_element(self.SELECTORS["become_member_button"], timeout=5):
+                try:
+                    # 等待頁面跳轉並出現卡片
+                    WebDriverWait(self.driver, 15).until(
+                        EC.presence_of_element_located(self.SELECTORS["tier_card"])
+                    )
+                    print("  已進入方案頁面，開始爬取...")
+                    tiers_data = self._scrape_tier_cards_from_current_view()
+                    
+                    # 爬取完畢，返回上一頁
+                    print("  方案爬取完畢，正在導航回原始頁面...")
+                    self.driver.back()
+                    # 等待原始頁面的關鍵元素重新加載
+                    WebDriverWait(self.driver, 15).until(
+                        EC.presence_of_element_located(self.SELECTORS["creator_name"])
+                    )
+                    print("  已成功返回原始頁面。")
+
+                except TimeoutException:
+                    print("  等待方案頁面加載或返回原始頁面時超時。")
+                except Exception as e:
+                    print(f"  處理新頁面方案時發生錯誤: {e}")
+            
+            print(f"會員方案資訊提取完成 (新頁面模式)，共 {len(tiers_data)} 個方案。")
+            return tiers_data
+
+        # 策略 2: 查找 "See membership options" 按鈕 (彈窗模式)
         see_options_button = self._find_element(self.SELECTORS["see_membership_button"], timeout=3)
         if see_options_button:
             print("  找到 'See membership options' 按鈕，將點擊進入彈窗...")
@@ -590,36 +620,6 @@ class PatreonScraperRefactored:
                     print(f"  處理彈窗方案時發生錯誤: {e}")
             
             print(f"會員方案資訊提取完成 (彈窗模式)，共 {len(tiers_data)} 個方案。")
-            return tiers_data
-
-        # 策略 2: 查找 "Become a member" 按鈕 (新頁面模式)
-        become_member_button = self._find_element(self.SELECTORS["become_member_button"], timeout=3)
-        if become_member_button:
-            print("  找到 'Become a member' 按鈕，將導航至新頁面...")
-            if self._click_element(self.SELECTORS["become_member_button"], timeout=5):
-                try:
-                    # 等待頁面跳轉並出現卡片
-                    WebDriverWait(self.driver, 15).until(
-                        EC.presence_of_element_located(self.SELECTORS["tier_card"])
-                    )
-                    print("  已進入方案頁面，開始爬取...")
-                    tiers_data = self._scrape_tier_cards_from_current_view()
-                    
-                    # 爬取完畢，返回上一頁
-                    print("  方案爬取完畢，正在導航回原始頁面...")
-                    self.driver.back()
-                    # 等待原始頁面的關鍵元素重新加載
-                    WebDriverWait(self.driver, 15).until(
-                        EC.presence_of_element_located(self.SELECTORS["creator_name"])
-                    )
-                    print("  已成功返回原始頁面。")
-
-                except TimeoutException:
-                    print("  等待方案頁面加載或返回原始頁面時超時。")
-                except Exception as e:
-                    print(f"  處理新頁面方案時發生錯誤: {e}")
-            
-            print(f"會員方案資訊提取完成 (新頁面模式)，共 {len(tiers_data)} 個方案。")
             return tiers_data
 
         # 策略 3: 在當前頁面直接爬取 (舊版結構)
@@ -1751,7 +1751,7 @@ if __name__ == "__main__":
     #     except ValueError:
     #         print("警告：提供的參數不是有效的數字，將處理所有 URL。")
 
-    url_file = os.path.join(os.path.dirname(__file__), "test_for_terminal.txt") 
+    url_file = os.path.join(os.path.dirname(__file__), "urls_for_scrape.txt") 
     
 
     output_directory = os.path.join(os.path.dirname(__file__), "Patreon_Scraped_Data") 
