@@ -18,6 +18,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException, StaleElementReferenceException
 from typing import Optional, Dict, Any, Tuple, Callable, List
 
+
+
 # --- Helper Functions (可以放在類別外部或內部作為靜態方法) ---
 
 
