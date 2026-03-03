@@ -1,7 +1,7 @@
 // Jenkinsfile (Declarative Pipeline - Windows Version)
 pipeline {
     // 讓 Jenkins 自動分配可用的節點
-    agent any
+    label 'windows'
 
     // 環境變數設定 (確保 Python 輸出不會亂碼)
     environment {
