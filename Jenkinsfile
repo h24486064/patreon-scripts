@@ -23,7 +23,7 @@ pipeline {
                     chcp 65001 > nul
                     
                     REM 確保系統環境變數已有 python 與 pip
-                    pip install -r requirements.txt
+                    python -m pip install -r requirements.txt
                 '''
             }
         }
